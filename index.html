@@ -616,17 +616,18 @@
                 will-change: transform, opacity;
             }
             .sidebar {
-                bottom: env(safe-area-inset-bottom);
+                bottom: calc(62px + env(safe-area-inset-bottom));
                 height: min(72dvh, 620px);
                 padding: 12px 16px calc(16px + env(safe-area-inset-bottom));
                 gap: 12px;
             }
             .dashboard {
-                bottom: calc(62px + env(safe-area-inset-bottom));
+                bottom: calc(124px + env(safe-area-inset-bottom));
                 height: min(64dvh, 560px);
             }
             .sidebar.is-open,
             .dashboard.is-open {
+                z-index: 18;
                 opacity: 1;
                 transform: translate3d(0, 0, 0);
             }
@@ -1125,11 +1126,13 @@
             }
 
             function syncSheetsForViewport() {
-                // Desktop keeps both panels visible; compact screens start with clear map space.
-                sheets.forEach(([panel, toggle]) => {
-                    panel.classList.toggle('is-open', !compactSheets.matches);
-                    toggle.setAttribute('aria-expanded', String(!compactSheets.matches));
-                });
+                // Mobile exposes its primary controls first and keeps the dashboard available above it.
+                const sidebarOpen = true;
+                const dashboardOpen = !compactSheets.matches;
+                sidebarPanel.classList.toggle('is-open', sidebarOpen);
+                sidebarToggle.setAttribute('aria-expanded', String(sidebarOpen));
+                dashboardPanel.classList.toggle('is-open', dashboardOpen);
+                dashboardToggle.setAttribute('aria-expanded', String(dashboardOpen));
                 syncMapLayout();
             }
 

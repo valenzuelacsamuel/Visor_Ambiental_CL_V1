@@ -27,6 +27,12 @@ Este documento actúa como contrato técnico, guía de arquitectura y bitácora 
 
 ## 4. Bitácora de Cambios (Change Log)
 
+### [2026-09-14] - Corrección de acceso al panel móvil
+- **Agente:** OpenCode (Desarrollador WebGIS Senior)
+- **Acción:** Corrección de visibilidad del panel de control en el diseño móvil.
+- **Detalles:** El panel estaba colapsado bajo la barra de estado. Ahora se abre inicialmente en móvil y ambos Bottom Sheets reservan espacio sobre dicha barra; el dashboard comienza plegado y se mantiene accesible desde su pestaña superior.
+- **Estado Actual:** Filtro regional, exportación, color dinámico y geoprocesos quedan visibles y desplazables en el panel de control móvil, sin duplicar el DOM.
+
 ### [2026-09-14] - Dashboard responsivo con Bottom Sheets
 - **Agente:** OpenCode (Desarrollador WebGIS Senior)
 - **Acción:** Refactorización responsiva del panel de control y dashboard SINADER sin duplicar el DOM.
