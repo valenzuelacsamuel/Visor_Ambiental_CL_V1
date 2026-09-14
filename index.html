@@ -271,6 +271,32 @@
 
         .process-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 
+        /* Native details keep every tool discoverable without a second mobile DOM. */
+        .control-section {
+            border: 1px solid var(--glass-hairline-soft);
+            border-radius: 14px;
+            background: var(--glass-tint);
+        }
+
+        .control-section summary {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 12px;
+            color: var(--glass-text);
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            cursor: pointer;
+        }
+
+        .control-section summary::-webkit-details-marker { display: none; }
+        .control-section summary::after { content: '⌄'; color: var(--glass-text-dim); font-size: 14px; transition: transform 0.15s ease; }
+        .control-section[open] summary::after { transform: rotate(180deg); }
+        .control-section summary:focus-visible { outline: 2px solid var(--glass-accent); outline-offset: -2px; border-radius: 14px; }
+        .control-section-body { display: flex; flex-direction: column; gap: 8px; padding: 0 12px 12px; }
+
         .check-row {
             display: flex;
             align-items: center;
@@ -677,6 +703,8 @@
             .status-item .k { font-size: 8px; }
             .maplibregl-ctrl-top-right, .maplibregl-ctrl-scale { display: none; }
             .legend { top: 82px; right: 16px; width: 220px; }
+            .legend { top: 76px; right: 60px; width: 160px; }
+            .dashboard:not(.is-open) .dashboard-content { opacity: 0; pointer-events: none; }
             #dashboard-rubro-chart { height: 220px; }
             #dashboard-distribution-chart { height: 130px; }
         }
@@ -771,12 +799,14 @@
             <span class="panel-live"><span class="live-dot" aria-hidden="true"></span> En vivo</span>
         </div>
 
-        <div class="field">
-            <label for="region-select" class="field-label">Filtrar por región</label>
-            <select id="region-select" class="glass-select">
-                <option value="ALL">Todas las regiones</option>
-            </select>
-        </div>
+        <details class="control-section" open>
+            <summary>Filtrar por región</summary>
+            <div class="control-section-body">
+                <select id="region-select" class="glass-select" aria-label="Filtrar por región">
+                    <option value="ALL">Todas las regiones</option>
+                </select>
+            </div>
+        </details>
 
         <div class="stats">
             <div class="stat">
@@ -797,96 +827,104 @@
             </div>
         </div>
 
-        <section class="field" aria-labelledby="export-label">
-            <span id="export-label" class="field-label">Exportar selección</span>
-            <select id="export-layer" class="glass-select" aria-label="Capa para exportar">
-                <option value="">Selecciona una capa</option>
-                <option value="humedales">Humedales</option>
-                <option value="sinader">SINADER</option>
-                <option value="ambas">Ambas capas</option>
-            </select>
-            <div class="export-actions">
-                <button id="export-geojson" class="export-button" type="button" disabled>GeoJSON</button>
-                <button id="export-shapefile" class="export-button" type="button" disabled>Shapefile ZIP</button>
+        <details class="control-section">
+            <summary>Exportar selección</summary>
+            <div class="control-section-body">
+                <select id="export-layer" class="glass-select" aria-label="Capa para exportar">
+                    <option value="">Selecciona una capa</option>
+                    <option value="humedales">Humedales</option>
+                    <option value="sinader">SINADER</option>
+                    <option value="ambas">Ambas capas</option>
+                </select>
+                <div class="export-actions">
+                    <button id="export-geojson" class="export-button" type="button" disabled>GeoJSON</button>
+                    <button id="export-shapefile" class="export-button" type="button" disabled>Shapefile ZIP</button>
+                </div>
+                <div id="export-status" class="export-status" role="status" aria-live="polite" aria-busy="false">
+                    <span id="export-spinner" class="spinner" hidden aria-hidden="true"></span>
+                    <span id="export-status-text">Preparando datos...</span>
+                </div>
             </div>
-            <div id="export-status" class="export-status" role="status" aria-live="polite" aria-busy="false">
-                <span id="export-spinner" class="spinner" hidden aria-hidden="true"></span>
-                <span id="export-status-text">Preparando datos...</span>
-            </div>
-        </section>
+        </details>
 
-        <section class="field" aria-labelledby="thematic-label">
-            <span id="thematic-label" class="field-label">Color dinámico</span>
-            <select id="thematic-layer" class="glass-select" aria-label="Capa para colorear">
-                <option value="humedales">Humedales</option>
-                <option value="sinader">SINADER</option>
-            </select>
-            <select id="thematic-field" class="glass-select" aria-label="Campo para colorear"></select>
-            <input id="thematic-colors" class="glass-input" type="text" placeholder="Colores opcionales: #22d3ee, #facc15" aria-label="Colores opcionales separados por coma">
-            <div class="export-actions">
-                <button id="thematic-apply" class="export-button" type="button">Aplicar color</button>
-                <button id="thematic-reset" class="export-button" type="button">Restablecer</button>
+        <details class="control-section">
+            <summary>Color dinámico</summary>
+            <div class="control-section-body">
+                <select id="thematic-layer" class="glass-select" aria-label="Capa para colorear">
+                    <option value="humedales">Humedales</option>
+                    <option value="sinader">SINADER</option>
+                </select>
+                <select id="thematic-field" class="glass-select" aria-label="Campo para colorear"></select>
+                <input id="thematic-colors" class="glass-input" type="text" placeholder="Colores opcionales: #22d3ee, #facc15" aria-label="Colores opcionales separados por coma">
+                <div class="export-actions">
+                    <button id="thematic-apply" class="export-button" type="button">Aplicar color</button>
+                    <button id="thematic-reset" class="export-button" type="button">Restablecer</button>
+                </div>
+                <div id="thematic-status" class="export-status" role="status" aria-live="polite">Selecciona un campo</div>
             </div>
-            <div id="thematic-status" class="export-status" role="status" aria-live="polite">Selecciona un campo</div>
-        </section>
+        </details>
 
-        <section class="field" aria-labelledby="buffer-label">
-            <span id="buffer-label" class="field-label">Área de influencia</span>
-            <label for="buffer-source" class="field-label">Capa para procesar</label>
-            <select id="buffer-source" class="glass-select">
-                <option value="sinader">SINADER</option>
-                <option value="humedales">Humedales</option>
-                <option value="ambas">Ambas capas</option>
-            </select>
-            <div class="process-grid">
-                <input id="buffer-distance" class="glass-input" type="number" value="100" min="1" max="1000000" step="10" aria-label="Distancia del buffer en metros">
-                <select id="buffer-scope" class="glass-select" aria-label="Contexto del geoproceso">
-                    <option value="filtered">Filtro activo</option>
+        <details class="control-section">
+            <summary>Área de influencia</summary>
+            <div class="control-section-body">
+                <label for="buffer-source" class="field-label">Capa para procesar</label>
+                <select id="buffer-source" class="glass-select">
+                    <option value="sinader">SINADER</option>
+                    <option value="humedales">Humedales</option>
+                    <option value="ambas">Ambas capas</option>
+                </select>
+                <div class="process-grid">
+                    <input id="buffer-distance" class="glass-input" type="number" value="100" min="1" max="1000000" step="10" aria-label="Distancia del buffer en metros">
+                    <select id="buffer-scope" class="glass-select" aria-label="Contexto del geoproceso">
+                        <option value="filtered">Filtro activo</option>
+                        <option value="all">Dataset completo</option>
+                    </select>
+                </div>
+                <label class="check-row">
+                    <input id="buffer-dissolve" type="checkbox">
+                    Disolver polígonos superpuestos
+                </label>
+                <div class="export-actions">
+                    <button id="buffer-run" class="export-button" type="button">Generar buffer</button>
+                    <button id="buffer-clear" class="export-button" type="button" disabled>Limpiar</button>
+                </div>
+                <div id="buffer-status" class="export-status" role="status" aria-live="polite" aria-busy="false">
+                    <span id="buffer-spinner" class="spinner" hidden aria-hidden="true"></span>
+                    <span id="buffer-status-text">Sin resultado temporal</span>
+                </div>
+                <div class="export-actions">
+                    <button id="buffer-export-geojson" class="export-button" type="button" disabled>GeoJSON</button>
+                    <button id="buffer-export-shapefile" class="export-button" type="button" disabled>Shapefile ZIP</button>
+                </div>
+            </div>
+        </details>
+
+        <details class="control-section">
+            <summary>Intersección espacial</summary>
+            <div class="control-section-body">
+                <div class="layer-options" role="group" aria-label="Capas a intersectar">
+                    <label class="check-row"><input class="intersection-layer" type="checkbox" value="humedales" checked> Humedales</label>
+                    <label class="check-row"><input class="intersection-layer" type="checkbox" value="sinader" checked> SINADER</label>
+                    <label class="check-row"><input id="intersection-buffer" class="intersection-layer" type="checkbox" value="buffer" disabled> Último buffer</label>
+                </div>
+                <select id="intersection-scope" class="glass-select" aria-label="Contexto de la intersección">
+                    <option value="filtered">Respetar filtro activo</option>
                     <option value="all">Dataset completo</option>
                 </select>
+                <div class="export-actions">
+                    <button id="intersection-run" class="export-button" type="button">Intersectar</button>
+                    <button id="intersection-clear" class="export-button" type="button" disabled>Limpiar</button>
+                </div>
+                <div id="intersection-status" class="export-status" role="status" aria-live="polite" aria-busy="false">
+                    <span id="intersection-spinner" class="spinner" hidden aria-hidden="true"></span>
+                    <span id="intersection-status-text">Selecciona dos o más capas</span>
+                </div>
+                <div class="export-actions">
+                    <button id="intersection-export-geojson" class="export-button" type="button" disabled>GeoJSON</button>
+                    <button id="intersection-export-shapefile" class="export-button" type="button" disabled>Shapefile ZIP</button>
+                </div>
             </div>
-            <label class="check-row">
-                <input id="buffer-dissolve" type="checkbox">
-                Disolver polígonos superpuestos
-            </label>
-            <div class="export-actions">
-                <button id="buffer-run" class="export-button" type="button">Generar buffer</button>
-                <button id="buffer-clear" class="export-button" type="button" disabled>Limpiar</button>
-            </div>
-            <div id="buffer-status" class="export-status" role="status" aria-live="polite" aria-busy="false">
-                <span id="buffer-spinner" class="spinner" hidden aria-hidden="true"></span>
-                <span id="buffer-status-text">Sin resultado temporal</span>
-            </div>
-            <div class="export-actions">
-                <button id="buffer-export-geojson" class="export-button" type="button" disabled>GeoJSON</button>
-                <button id="buffer-export-shapefile" class="export-button" type="button" disabled>Shapefile ZIP</button>
-            </div>
-        </section>
-
-        <section class="field" aria-labelledby="intersection-label">
-            <span id="intersection-label" class="field-label">Intersección espacial</span>
-            <div class="layer-options" role="group" aria-label="Capas a intersectar">
-                <label class="check-row"><input class="intersection-layer" type="checkbox" value="humedales" checked> Humedales</label>
-                <label class="check-row"><input class="intersection-layer" type="checkbox" value="sinader" checked> SINADER</label>
-                <label class="check-row"><input id="intersection-buffer" class="intersection-layer" type="checkbox" value="buffer" disabled> Último buffer</label>
-            </div>
-            <select id="intersection-scope" class="glass-select" aria-label="Contexto de la intersección">
-                <option value="filtered">Respetar filtro activo</option>
-                <option value="all">Dataset completo</option>
-            </select>
-            <div class="export-actions">
-                <button id="intersection-run" class="export-button" type="button">Intersectar</button>
-                <button id="intersection-clear" class="export-button" type="button" disabled>Limpiar</button>
-            </div>
-            <div id="intersection-status" class="export-status" role="status" aria-live="polite" aria-busy="false">
-                <span id="intersection-spinner" class="spinner" hidden aria-hidden="true"></span>
-                <span id="intersection-status-text">Selecciona dos o más capas</span>
-            </div>
-            <div class="export-actions">
-                <button id="intersection-export-geojson" class="export-button" type="button" disabled>GeoJSON</button>
-                <button id="intersection-export-shapefile" class="export-button" type="button" disabled>Shapefile ZIP</button>
-            </div>
-        </section>
+        </details>
 
         <p class="panel-note">Ambas capas están visibles. Selecciona una región para filtrarlas y reencuadrar el mapa.</p>
     </aside>

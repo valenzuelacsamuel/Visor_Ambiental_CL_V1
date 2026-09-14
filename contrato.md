@@ -27,6 +27,12 @@ Este documento actúa como contrato técnico, guía de arquitectura y bitácora 
 
 ## 4. Bitácora de Cambios (Change Log)
 
+### [2026-09-14] - Orden y despliegue de controles móviles
+- **Agente:** OpenCode (Desarrollador WebGIS Senior)
+- **Acción:** Simplificación del panel móvil a controles desplegables y corrección visual del cajón de analítica.
+- **Detalles:** Las cinco herramientas usan `details/summary` nativos en el mismo DOM; Región inicia abierta y Exportar, Color dinámico, Área de influencia e Intersección se expanden bajo demanda. El cajón lateral oculta su contenido al plegarse y la leyenda se compacta para no competir con los controles.
+- **Estado Actual:** En iPhone 12, los controles quedan ordenados, accesibles por toque y sin contenido del dashboard filtrándose bajo su pestaña lateral.
+
 ### [2026-09-14] - Dashboard móvil como cajón lateral
 - **Agente:** OpenCode (Desarrollador WebGIS Senior)
 - **Acción:** Reubicación del dashboard interactivo para evitar la superposición con el panel de control móvil.
