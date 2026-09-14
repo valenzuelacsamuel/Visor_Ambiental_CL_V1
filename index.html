@@ -1,0 +1,2018 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visor Ambiental de Chile</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- MapLibre GL JS CDN -->
+    <script src="https://unpkg.com/maplibre-gl@^4.0.0/dist/maplibre-gl.js"></script>
+    <link href="https://unpkg.com/maplibre-gl@^4.0.0/dist/maplibre-gl.css" rel="stylesheet" />
+    <!-- Shapefile client-side; el bundle incluye JSZip para generar .zip en el navegador -->
+    <script src="https://unpkg.com/@mapbox/shp-write@0.4.3/shpwrite.js"></script>
+    <!-- Fallback local para buffers cuando file:// bloquea Web Workers -->
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7.2.0/turf.min.js"></script>
+    <script src="intersection-core.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+    <!-- Apple Liquid Glass - Sistema de diseño de la capa de control flotante -->
+    <style>
+        /* =====================================================================
+           Liquid Glass (Apple) - Arquitectura UI
+           ---------------------------------------------------------------------
+           Principios rectores:
+           1. El vidrio se reserva SOLO a la capa de control flotante
+              (toolbars, tab bars, botones, popups, paneles de control).
+           2. El contenido NUNCA se vuelve vidrio: el mapa y el material
+              permanecen opacos y sin restricciones debajo.
+           3. El material "lentea" lo que tiene debajo: blur + saturate +
+              brillos de refracción en los bordes (no es frost plano).
+           4. Los controles auto-ajustan su tinte para mantenerse legibles
+              sobre cualquier contenido.
+           5. Formas cápsula con radios concéntricos.
+           6. Estados de foco visibles + Reduce Transparency + Reduce Motion.
+           ===================================================================== */
+        :root {
+            color-scheme: dark;
+            --glass-tint: rgba(255, 255, 255, 0.08);
+            --glass-tint-hover: rgba(255, 255, 255, 0.15);
+            --glass-tint-active: rgba(52, 211, 153, 0.18);
+            --glass-bg: rgba(17, 24, 39, 0.52);
+            --glass-bg-solid: rgba(15, 23, 42, 0.97);
+            --glass-hairline: rgba(255, 255, 255, 0.12);
+            --glass-hairline-soft: rgba(255, 255, 255, 0.07);
+            --glass-highlight-top: rgba(255, 255, 255, 0.20);
+            --glass-highlight-bottom: rgba(255, 255, 255, 0.05);
+            --glass-accent: #34d399;
+            --glass-accent-soft: #d1fae5;
+            --glass-text: #f1f5f9;
+            --glass-text-dim: rgba(241, 245, 249, 0.55);
+            --glass-radius-bar: 22px;
+            --glass-radius-panel: 26px;
+            --glass-shadow: 0 24px 48px -16px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        ::selection { background: rgba(52, 211, 153, 0.35); }
+
+        /* --- Material base: lente sobre el contenido (nunca el contenido) --- */
+        .glass {
+            background: var(--glass-bg);
+            -webkit-backdrop-filter: blur(28px) saturate(1.8);
+            backdrop-filter: blur(28px) saturate(1.8);
+            border: 1px solid var(--glass-hairline);
+            box-shadow:
+                inset 0 1px 0 var(--glass-highlight-top),
+                inset 0 -1px 0 var(--glass-highlight-bottom),
+                inset 0 0 0 1px rgba(255, 255, 255, 0.03),
+                var(--glass-shadow);
+        }
+
+        /* =====================================================================
+           Toolbar superior (capa de control flotante - cápsula)
+           ===================================================================== */
+        .toolbar {
+            position: fixed;
+            top: 16px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 20;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 10px 16px;
+            border-radius: var(--glass-radius-bar);
+            max-width: calc(100vw - 32px);
+        }
+
+        .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+
+        .brand-mark {
+            width: 36px;
+            height: 36px;
+            flex: none;
+            border-radius: 12px;
+            display: grid;
+            place-items: center;
+            background: var(--glass-tint);
+            border: 1px solid var(--glass-hairline);
+            box-shadow: inset 0 1px 0 var(--glass-highlight-top);
+        }
+
+        .brand-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 9999px;
+            background: linear-gradient(135deg, #34d399, #0d9488);
+            box-shadow: 0 0 12px rgba(52, 211, 153, 0.8);
+        }
+
+        .brand-title { font-size: 14px; font-weight: 600; color: #fff; line-height: 1.2; white-space: nowrap; }
+        .brand-sub { font-size: 11px; color: var(--glass-text-dim); white-space: nowrap; }
+
+        .toolbar-sep { width: 1px; height: 22px; background: var(--glass-hairline); flex: none; }
+
+        /* --- Control segmentado (equivalente web a glassEffect(.regular, in: .capsule)) --- */
+        .segmented {
+            display: flex;
+            gap: 4px;
+            padding: 4px;
+            border-radius: 9999px;
+            background: var(--glass-tint);
+            border: 1px solid var(--glass-hairline);
+            flex: none;
+        }
+
+        .seg-tab {
+            appearance: none;
+            border: 0;
+            border-radius: 9999px;
+            padding: 6px 14px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--glass-text-dim);
+            background: transparent;
+            cursor: pointer;
+            transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .seg-tab:hover { color: var(--glass-text); }
+
+        .seg-tab[aria-current="true"] {
+            color: #fff;
+            background: rgba(255, 255, 255, 0.12);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 1px 2px rgba(0, 0, 0, 0.3);
+            cursor: default;
+        }
+
+        .seg-tab:focus-visible { outline: 2px solid var(--glass-accent); outline-offset: 2px; }
+
+        /* =====================================================================
+           Panel lateral (capa de control flotante)
+           ===================================================================== */
+        .sidebar {
+            position: fixed;
+            top: 16px;
+            left: 16px;
+            bottom: 16px;
+            width: 288px;
+            z-index: 15;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            padding: 18px;
+            border-radius: var(--glass-radius-panel);
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+        }
+
+        .sidebar::-webkit-scrollbar { width: 6px; }
+        .sidebar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.18); border-radius: 9999px; }
+
+        .panel-head { display: flex; align-items: center; justify-content: space-between; }
+
+        .panel-title { font-size: 14px; font-weight: 600; color: #fff; }
+
+        .panel-live {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--glass-accent-soft);
+            background: var(--glass-tint);
+            border: 1px solid var(--glass-hairline);
+            border-radius: 9999px;
+            padding: 3px 10px;
+        }
+
+        .live-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 9999px;
+            background: var(--glass-accent);
+            animation: live-pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+        .field { display: flex; flex-direction: column; gap: 8px; }
+
+        .field-label {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--glass-text-dim);
+        }
+
+        .glass-select {
+            appearance: none;
+            color-scheme: dark;
+            width: 100%;
+            padding: 9px 36px 9px 14px;
+            font-size: 13px;
+            color: var(--glass-text);
+            background-color: var(--glass-tint);
+            background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none' stroke='%23e2e8f0' stroke-width='1.5' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 14px center;
+            border: 1px solid var(--glass-hairline);
+            border-radius: 9999px;
+            cursor: pointer;
+            transition: background-color 0.15s ease, border-color 0.15s ease;
+        }
+
+        .glass-select:hover { background-color: var(--glass-tint-hover); }
+        .glass-select:focus-visible { outline: 2px solid var(--glass-accent); outline-offset: 2px; border-color: transparent; }
+        .glass-select option { background: #0f172a; color: #f1f5f9; }
+        .glass-select option:checked { background: #065f46; color: #fff; }
+
+        .glass-input {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 9px 14px;
+            font-size: 13px;
+            color: var(--glass-text);
+            background: var(--glass-tint);
+            border: 1px solid var(--glass-hairline);
+            border-radius: 9999px;
+        }
+
+        .glass-input:focus-visible { outline: 2px solid var(--glass-accent); outline-offset: 2px; }
+        .glass-input:disabled, .glass-select:disabled { opacity: 0.45; cursor: not-allowed; }
+
+        .process-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+        .check-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--glass-text);
+            font-size: 11px;
+            cursor: pointer;
+        }
+
+        .check-row input { accent-color: var(--glass-accent); }
+        .layer-options { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+        .layer-options .check-row {
+            padding: 8px 10px;
+            background: var(--glass-tint);
+            border: 1px solid var(--glass-hairline-soft);
+            border-radius: 12px;
+        }
+
+        .legend {
+            position: fixed;
+            top: 130px;
+            right: 16px;
+            z-index: 15;
+            width: 256px;
+            border-radius: 18px;
+            overflow: hidden;
+        }
+
+        .legend-toggle {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            appearance: none;
+            border: 0;
+            padding: 11px 13px;
+            background: transparent;
+            color: var(--glass-text);
+            font: inherit;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .legend-toggle:focus-visible { outline: 2px solid var(--glass-accent); outline-offset: -2px; }
+        .legend-toggle[aria-expanded="true"] .legend-chevron { transform: rotate(180deg); }
+        .legend-chevron { color: var(--glass-text-dim); transition: transform 0.15s ease; }
+
+        .legend-content {
+            max-height: min(360px, 50vh);
+            overflow-y: auto;
+            padding: 0 13px 13px;
+            border-top: 1px solid var(--glass-hairline-soft);
+        }
+
+        .legend-title { margin: 11px 0 7px; color: var(--glass-text-dim); font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; }
+        .legend-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; color: var(--glass-text); font-size: 11px; }
+        .legend-swatch { width: 12px; height: 12px; flex: none; border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.35); }
+        .legend-note { margin: 9px 0 0; color: var(--glass-text-dim); font-size: 10px; line-height: 1.45; }
+
+        .dashboard {
+            position: fixed;
+            right: 16px;
+            bottom: 80px;
+            z-index: 15;
+            width: 336px;
+            max-height: min(650px, calc(100vh - 180px));
+            border-radius: var(--glass-radius-panel);
+            overflow: hidden;
+        }
+
+        .dashboard-toggle {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            appearance: none;
+            border: 0;
+            padding: 13px 15px;
+            background: transparent;
+            color: var(--glass-text);
+            font: inherit;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .dashboard-toggle:focus-visible { outline: 2px solid var(--glass-accent); outline-offset: -2px; }
+        .dashboard-toggle[aria-expanded="true"] .dashboard-chevron { transform: rotate(180deg); }
+        .dashboard-chevron { color: var(--glass-text-dim); transition: transform 0.15s ease; }
+
+        .dashboard-content { max-height: calc(min(650px, 100vh - 180px) - 48px); overflow-y: auto; padding: 0 15px 15px; border-top: 1px solid var(--glass-hairline-soft); }
+        .dashboard-kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; margin: 12px 0; }
+        .dashboard-kpi { min-width: 0; padding: 8px; border: 1px solid var(--glass-hairline-soft); border-radius: 12px; background: var(--glass-tint); }
+        .dashboard-kpi .k { display: block; overflow: hidden; color: var(--glass-text-dim); font-size: 8px; letter-spacing: 0.06em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+        .dashboard-kpi .v { display: block; margin-top: 3px; overflow: hidden; color: #fff; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+        .dashboard-chart-title { margin: 14px 0 5px; color: var(--glass-text-dim); font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+        .dashboard-chart { width: 100%; }
+        #dashboard-rubro-chart { height: 290px; }
+        #dashboard-distribution-chart { height: 150px; }
+        .dashboard-status { margin: 8px 0 0; color: var(--glass-text-dim); font-size: 10px; line-height: 1.4; }
+
+        /* --- Estadísticas (radios concéntricos: filas 14px dentro de panel 26px) --- */
+        .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+        .stat {
+            background: var(--glass-tint);
+            border: 1px solid var(--glass-hairline);
+            border-radius: 14px;
+            padding: 10px 12px;
+        }
+
+        .stat-label {
+            display: block;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--glass-text-dim);
+            margin-bottom: 2px;
+        }
+
+        .stat-value { font-size: 15px; font-weight: 600; color: #fff; }
+
+        .export-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+        .export-button {
+            appearance: none;
+            border: 1px solid var(--glass-hairline);
+            border-radius: 9999px;
+            padding: 9px 10px;
+            background: var(--glass-tint);
+            color: var(--glass-text);
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.15s ease, opacity 0.15s ease;
+        }
+
+        .export-button:hover:not(:disabled) { background: var(--glass-tint-hover); }
+        .export-button:focus-visible { outline: 2px solid var(--glass-accent); outline-offset: 2px; }
+        .export-button:disabled { cursor: not-allowed; opacity: 0.4; }
+
+        .export-status {
+            min-height: 16px;
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            color: var(--glass-text-dim);
+            font-size: 10px;
+            line-height: 1.4;
+        }
+
+        .spinner {
+            width: 12px;
+            height: 12px;
+            flex: none;
+            border: 2px solid rgba(255, 255, 255, 0.18);
+            border-top-color: var(--glass-accent);
+            border-radius: 9999px;
+            animation: spin 0.7s linear infinite;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .panel-note {
+            font-size: 11px;
+            line-height: 1.5;
+            color: var(--glass-text-dim);
+            background: var(--glass-tint);
+            border: 1px solid var(--glass-hairline-soft);
+            border-radius: 12px;
+            padding: 10px 12px;
+        }
+
+        /* =====================================================================
+           Barra de estado inferior (cápsula)
+           ===================================================================== */
+        .statusbar {
+            position: fixed;
+            bottom: 16px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 20;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 16px;
+            border-radius: 9999px;
+        }
+
+        .status-item { display: flex; align-items: baseline; gap: 6px; font-size: 12px; white-space: nowrap; }
+        .status-item .k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--glass-text-dim); }
+        .status-item .v { color: #fff; font-weight: 600; }
+        .status-sep { width: 1px; height: 14px; background: var(--glass-hairline); }
+
+        /* =====================================================================
+           Popup MapLibre: material de vidrio líquido
+           ===================================================================== */
+        .maplibregl-popup-content {
+            background: var(--glass-bg);
+            -webkit-backdrop-filter: blur(24px) saturate(1.8);
+            backdrop-filter: blur(24px) saturate(1.8);
+            color: var(--glass-text);
+            border: 1px solid var(--glass-hairline);
+            border-radius: 18px;
+            padding: 16px 18px 18px;
+            overflow: hidden;
+            box-shadow:
+                inset 0 1px 0 var(--glass-highlight-top),
+                inset 0 -1px 0 var(--glass-highlight-bottom),
+                inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+                0 24px 48px -16px rgba(0, 0, 0, 0.6),
+                0 2px 8px rgba(0, 0, 0, 0.35);
+        }
+
+        .maplibregl-popup-anchor-top .maplibregl-popup-tip,
+        .maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+        .maplibregl-popup-anchor-top-right .maplibregl-popup-tip { border-bottom-color: rgba(17, 24, 39, 0.92); }
+        .maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+        .maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+        .maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip { border-top-color: rgba(17, 24, 39, 0.92); }
+        .maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: rgba(17, 24, 39, 0.92); }
+        .maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: rgba(17, 24, 39, 0.92); }
+        .maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+        .maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip { border-left-color: rgba(17, 24, 39, 0.92); }
+        .maplibregl-popup-anchor-top-right .maplibregl-popup-tip,
+        .maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip { border-right-color: rgba(17, 24, 39, 0.92); }
+
+        .maplibregl-popup-close-button {
+            top: 8px;
+            right: 8px;
+            width: 26px;
+            height: 26px;
+            border-radius: 9999px;
+            background: var(--glass-tint);
+            border: 1px solid var(--glass-hairline);
+            color: rgba(241, 245, 249, 0.75);
+            font-size: 14px;
+            line-height: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.15s ease, color 0.15s ease;
+        }
+
+        .maplibregl-popup-close-button:hover { background: var(--glass-tint-hover); color: #fff; }
+        .maplibregl-popup-content:focus-visible,
+        .maplibregl-popup-close-button:focus-visible { outline: 2px solid var(--glass-accent); outline-offset: 2px; }
+
+        /* =====================================================================
+           Controles MapLibre (navegación, escala, atribución) - vidrio oscuro.
+           Los iconos SVG oscuros de MapLibre se invierten a tinte claro.
+           ===================================================================== */
+        .maplibregl-ctrl-group {
+            background: var(--glass-bg);
+            -webkit-backdrop-filter: blur(24px) saturate(1.8);
+            backdrop-filter: blur(24px) saturate(1.8);
+            border: 1px solid var(--glass-hairline);
+            border-radius: 14px;
+            box-shadow:
+                inset 0 1px 0 var(--glass-highlight-top),
+                inset 0 -1px 0 var(--glass-highlight-bottom),
+                0 12px 32px -12px rgba(0, 0, 0, 0.6);
+            overflow: hidden;
+        }
+
+        .maplibregl-ctrl-group button {
+            width: 34px;
+            height: 34px;
+            background: transparent;
+            border-radius: 0;
+        }
+
+        .maplibregl-ctrl-group button + button { border-top: 1px solid var(--glass-hairline-soft); }
+        .maplibregl-ctrl-group button:hover { background: var(--glass-tint-hover); }
+        .maplibregl-ctrl-icon { filter: invert(1) opacity(0.9); }
+        .maplibregl-ctrl-group button:focus { box-shadow: none; }
+        .maplibregl-ctrl-group button:focus:focus-visible { box-shadow: none; outline: 2px solid var(--glass-accent); outline-offset: -2px; }
+
+        .maplibregl-ctrl.maplibregl-ctrl-attrib {
+            background: var(--glass-bg);
+            -webkit-backdrop-filter: blur(16px) saturate(1.6);
+            backdrop-filter: blur(16px) saturate(1.6);
+            border: 1px solid var(--glass-hairline);
+            border-radius: 9999px;
+            padding: 3px 10px;
+            margin: 0 10px 10px 0;
+            font-size: 10px;
+        }
+
+        .maplibregl-ctrl-attrib a { color: rgba(241, 245, 249, 0.7); }
+        .maplibregl-ctrl-attrib a:hover { color: #fff; }
+        .maplibregl-ctrl-attrib-button { background-color: transparent !important; filter: invert(1); }
+        .maplibregl-ctrl-attrib.maplibregl-compact { background-color: transparent; }
+
+        .maplibregl-ctrl-scale {
+            background: var(--glass-bg);
+            -webkit-backdrop-filter: blur(16px) saturate(1.6);
+            backdrop-filter: blur(16px) saturate(1.6);
+            border: 1px solid var(--glass-hairline);
+            border-radius: 9999px;
+            color: var(--glass-text-dim);
+            font-size: 10px;
+            padding: 2px 8px;
+            margin: 0 10px 8px 0;
+        }
+
+        /* =====================================================================
+           Responsive
+           ===================================================================== */
+        @media (max-width: 900px) {
+            .toolbar-sep { display: none; }
+            .sidebar { width: 248px; }
+        }
+
+        @media (max-width: 640px) {
+            .toolbar {
+                left: 16px;
+                right: 16px;
+                transform: none;
+                max-width: none;
+                justify-content: space-between;
+                gap: 8px;
+                padding: 8px 10px;
+            }
+            .brand-mark, .brand-sub, #tab-regions, .panel-live, .panel-note { display: none; }
+            .brand-title { font-size: 12px; }
+            .seg-tab { padding-inline: 10px; }
+            .sidebar {
+                top: auto;
+                right: 16px;
+                bottom: 60px;
+                width: auto;
+                max-height: 50vh;
+                padding: 14px;
+            }
+            .statusbar {
+                left: 16px;
+                right: 16px;
+                transform: none;
+                justify-content: center;
+                gap: 6px;
+                padding: 6px 10px;
+            }
+            .status-item { font-size: 10px; }
+            .status-item .k { font-size: 8px; }
+            .maplibregl-ctrl-top-right, .maplibregl-ctrl-scale { display: none; }
+            .legend { top: 82px; right: 16px; width: 220px; }
+            .dashboard { top: 82px; right: 16px; bottom: auto; width: 272px; max-height: 42vh; }
+            .dashboard-content { max-height: calc(42vh - 48px); }
+            #dashboard-rubro-chart { height: 220px; }
+            #dashboard-distribution-chart { height: 130px; }
+        }
+
+        /* =====================================================================
+           Fallback sin backdrop-filter (legibilidad garantizada)
+           ===================================================================== */
+        @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+            .glass,
+            .legend,
+            .maplibregl-ctrl-group,
+            .maplibregl-ctrl-attrib,
+            .maplibregl-ctrl-scale {
+                background: rgba(15, 23, 42, 0.92);
+            }
+        }
+
+        /* =====================================================================
+           Accesibilidad: Reduce Transparency
+           ===================================================================== */
+        @media (prefers-reduced-transparency: reduce) {
+            .glass,
+            .maplibregl-ctrl-group,
+            .maplibregl-ctrl-attrib,
+            .maplibregl-ctrl-scale {
+                background: var(--glass-bg-solid);
+                -webkit-backdrop-filter: none;
+                backdrop-filter: none;
+            }
+            .segmented,
+            .glass-select,
+            .stat,
+            .panel-note,
+            .panel-live,
+            .maplibregl-popup-content {
+                background-color: rgba(255, 255, 255, 0.12);
+            }
+        }
+
+        /* =====================================================================
+           Accesibilidad: Reduce Motion
+           ===================================================================== */
+        @media (prefers-reduced-motion: reduce) {
+            .maplibregl-popup-anim,
+            .maplibregl-popup { animation: none !important; }
+            .live-dot { animation: none; }
+            .spinner { animation: none; border-top-color: var(--glass-text); }
+            .glass,
+            .seg-tab,
+            .glass-select,
+            .maplibregl-popup-close-button { transition: none !important; }
+            .maplibregl-ctrl-group button:hover { background: transparent; }
+        }
+    </style>
+    <!-- Datos GeoJSON empaquetados para compatibilidad total con protocolo file:// -->
+    <script src="humedales-data.js"></script>
+    <script src="sinader-data.js"></script>
+</head>
+
+<body class="bg-slate-950 text-slate-100 m-0 p-0 overflow-hidden relative">
+
+    <!-- Contenido opaco: mapa a pantalla completa, sin restricciones -->
+    <div id="map" class="h-screen w-full"></div>
+
+    <!-- Capa de control flotante: Toolbar (Liquid Glass) -->
+    <header class="glass toolbar" role="banner" aria-label="Barra principal">
+        <div class="brand">
+            <span class="brand-mark" aria-hidden="true"><span class="brand-dot"></span></span>
+            <div class="brand-text">
+                <h1 class="brand-title">Visor Ambiental</h1>
+                <p class="brand-sub">Chile · Ministerio del Medio Ambiente</p>
+            </div>
+        </div>
+        <div class="toolbar-sep" role="separator"></div>
+        <nav class="segmented" aria-label="Capas del visor">
+             <span class="seg-tab" aria-current="true">Humedales + SINADER</span>
+             <button class="seg-tab" id="tab-regions" type="button">Regiones</button>
+        </nav>
+    </header>
+
+    <!-- Capa de control flotante: Panel lateral -->
+    <aside class="glass sidebar" aria-label="Filtros y estadísticas">
+        <div class="panel-head">
+            <h2 class="panel-title">Panel de control</h2>
+            <span class="panel-live"><span class="live-dot" aria-hidden="true"></span> En vivo</span>
+        </div>
+
+        <div class="field">
+            <label for="region-select" class="field-label">Filtrar por región</label>
+            <select id="region-select" class="glass-select">
+                <option value="ALL">Todas las regiones</option>
+            </select>
+        </div>
+
+        <div class="stats">
+            <div class="stat">
+                <span class="stat-label">Humedales</span>
+                <span id="wetland-count" class="stat-value">--</span>
+            </div>
+            <div class="stat">
+                <span class="stat-label">Establecimientos</span>
+                <span id="sinader-count" class="stat-value">--</span>
+            </div>
+            <div class="stat">
+                <span class="stat-label">Superficie</span>
+                <span id="wetland-area" class="stat-value">--</span>
+            </div>
+            <div class="stat">
+                <span class="stat-label">Toneladas</span>
+                <span id="sinader-tonnes" class="stat-value">--</span>
+            </div>
+        </div>
+
+        <section class="field" aria-labelledby="export-label">
+            <span id="export-label" class="field-label">Exportar selección</span>
+            <select id="export-layer" class="glass-select" aria-label="Capa para exportar">
+                <option value="">Selecciona una capa</option>
+                <option value="humedales">Humedales</option>
+                <option value="sinader">SINADER</option>
+                <option value="ambas">Ambas capas</option>
+            </select>
+            <div class="export-actions">
+                <button id="export-geojson" class="export-button" type="button" disabled>GeoJSON</button>
+                <button id="export-shapefile" class="export-button" type="button" disabled>Shapefile ZIP</button>
+            </div>
+            <div id="export-status" class="export-status" role="status" aria-live="polite" aria-busy="false">
+                <span id="export-spinner" class="spinner" hidden aria-hidden="true"></span>
+                <span id="export-status-text">Preparando datos...</span>
+            </div>
+        </section>
+
+        <section class="field" aria-labelledby="thematic-label">
+            <span id="thematic-label" class="field-label">Color dinámico</span>
+            <select id="thematic-layer" class="glass-select" aria-label="Capa para colorear">
+                <option value="humedales">Humedales</option>
+                <option value="sinader">SINADER</option>
+            </select>
+            <select id="thematic-field" class="glass-select" aria-label="Campo para colorear"></select>
+            <input id="thematic-colors" class="glass-input" type="text" placeholder="Colores opcionales: #22d3ee, #facc15" aria-label="Colores opcionales separados por coma">
+            <div class="export-actions">
+                <button id="thematic-apply" class="export-button" type="button">Aplicar color</button>
+                <button id="thematic-reset" class="export-button" type="button">Restablecer</button>
+            </div>
+            <div id="thematic-status" class="export-status" role="status" aria-live="polite">Selecciona un campo</div>
+        </section>
+
+        <section class="field" aria-labelledby="buffer-label">
+            <span id="buffer-label" class="field-label">Área de influencia</span>
+            <label for="buffer-source" class="field-label">Capa para procesar</label>
+            <select id="buffer-source" class="glass-select">
+                <option value="sinader">SINADER</option>
+                <option value="humedales">Humedales</option>
+                <option value="ambas">Ambas capas</option>
+            </select>
+            <div class="process-grid">
+                <input id="buffer-distance" class="glass-input" type="number" value="100" min="1" max="1000000" step="10" aria-label="Distancia del buffer en metros">
+                <select id="buffer-scope" class="glass-select" aria-label="Contexto del geoproceso">
+                    <option value="filtered">Filtro activo</option>
+                    <option value="all">Dataset completo</option>
+                </select>
+            </div>
+            <label class="check-row">
+                <input id="buffer-dissolve" type="checkbox">
+                Disolver polígonos superpuestos
+            </label>
+            <div class="export-actions">
+                <button id="buffer-run" class="export-button" type="button">Generar buffer</button>
+                <button id="buffer-clear" class="export-button" type="button" disabled>Limpiar</button>
+            </div>
+            <div id="buffer-status" class="export-status" role="status" aria-live="polite" aria-busy="false">
+                <span id="buffer-spinner" class="spinner" hidden aria-hidden="true"></span>
+                <span id="buffer-status-text">Sin resultado temporal</span>
+            </div>
+            <div class="export-actions">
+                <button id="buffer-export-geojson" class="export-button" type="button" disabled>GeoJSON</button>
+                <button id="buffer-export-shapefile" class="export-button" type="button" disabled>Shapefile ZIP</button>
+            </div>
+        </section>
+
+        <section class="field" aria-labelledby="intersection-label">
+            <span id="intersection-label" class="field-label">Intersección espacial</span>
+            <div class="layer-options" role="group" aria-label="Capas a intersectar">
+                <label class="check-row"><input class="intersection-layer" type="checkbox" value="humedales" checked> Humedales</label>
+                <label class="check-row"><input class="intersection-layer" type="checkbox" value="sinader" checked> SINADER</label>
+                <label class="check-row"><input id="intersection-buffer" class="intersection-layer" type="checkbox" value="buffer" disabled> Último buffer</label>
+            </div>
+            <select id="intersection-scope" class="glass-select" aria-label="Contexto de la intersección">
+                <option value="filtered">Respetar filtro activo</option>
+                <option value="all">Dataset completo</option>
+            </select>
+            <div class="export-actions">
+                <button id="intersection-run" class="export-button" type="button">Intersectar</button>
+                <button id="intersection-clear" class="export-button" type="button" disabled>Limpiar</button>
+            </div>
+            <div id="intersection-status" class="export-status" role="status" aria-live="polite" aria-busy="false">
+                <span id="intersection-spinner" class="spinner" hidden aria-hidden="true"></span>
+                <span id="intersection-status-text">Selecciona dos o más capas</span>
+            </div>
+            <div class="export-actions">
+                <button id="intersection-export-geojson" class="export-button" type="button" disabled>GeoJSON</button>
+                <button id="intersection-export-shapefile" class="export-button" type="button" disabled>Shapefile ZIP</button>
+            </div>
+        </section>
+
+        <p class="panel-note">Ambas capas están visibles. Selecciona una región para filtrarlas y reencuadrar el mapa.</p>
+    </aside>
+
+    <section class="glass legend" aria-label="Leyenda temática">
+        <button id="legend-toggle" class="legend-toggle" type="button" aria-expanded="false" aria-controls="legend-content">
+            Leyenda de color <span class="legend-chevron" aria-hidden="true">⌄</span>
+        </button>
+        <div id="legend-content" class="legend-content" hidden></div>
+    </section>
+
+    <aside class="glass dashboard" aria-label="Dashboard SINADER">
+        <button id="dashboard-toggle" class="dashboard-toggle" type="button" aria-expanded="true" aria-controls="dashboard-content">
+            Dashboard SINADER <span class="dashboard-chevron" aria-hidden="true">⌄</span>
+        </button>
+        <div id="dashboard-content" class="dashboard-content">
+            <div class="dashboard-kpis" aria-label="Indicadores SINADER">
+                <div class="dashboard-kpi"><span class="k">Toneladas</span><span id="dashboard-tonnes" class="v">--</span></div>
+                <div class="dashboard-kpi"><span class="k">Establecimientos</span><span id="dashboard-establishments" class="v">--</span></div>
+                <div class="dashboard-kpi"><span class="k">Rubros</span><span id="dashboard-rubros" class="v">--</span></div>
+            </div>
+            <label for="dashboard-metric" class="field-label">Ordenar rubros por</label>
+            <select id="dashboard-metric" class="glass-select">
+                <option value="tonnes">Toneladas</option>
+                <option value="establishments">Establecimientos</option>
+            </select>
+            <p class="dashboard-chart-title">Rubros</p>
+            <div id="dashboard-rubro-chart" class="dashboard-chart" aria-label="Ranking de rubros"></div>
+            <p class="dashboard-chart-title">Distribución por establecimiento</p>
+            <div id="dashboard-distribution-chart" class="dashboard-chart" aria-label="Histograma de toneladas por establecimiento"></div>
+            <p id="dashboard-status" class="dashboard-status">Cargando indicadores...</p>
+        </div>
+    </aside>
+
+    <!-- Capa de control flotante: Barra de estado -->
+    <footer class="glass statusbar" aria-label="Estado del visor">
+        <span class="status-item"><span class="k">Zoom</span><span id="zoom-level" class="v">4.0</span></span>
+        <span class="status-sep"></span>
+        <span class="status-item"><span class="k">Región</span><span id="status-region" class="v">Todas</span></span>
+        <span class="status-sep"></span>
+        <span class="status-item"><span class="k">Fuente</span><span class="v">SIMBIO + SINADER · MMA</span></span>
+    </footer>
+
+    <!-- Script de Inicialización y Lógica Espacial -->
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Instancia del mapa MapLibre GL JS
+            const map = new maplibregl.Map({
+                container: 'map',
+                style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+                center: [-71.5430, -35.6751], // Centro de Chile
+                zoom: 4
+            });
+
+            // Respetar la preferencia del sistema de "Menos Movimiento"
+            const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+            // Controles flotantes (estilizados como vidrio vía CSS)
+            map.addControl(new maplibregl.NavigationControl(), 'top-right');
+            map.addControl(new maplibregl.ScaleControl({ maxWidth: 90, unit: 'metric' }), 'bottom-right');
+            map.addControl(new maplibregl.AttributionControl({ compact: false }), 'bottom-right');
+
+            // Referencias a la capa de control flotante (UI)
+            const select = document.getElementById('region-select');
+            const wetlandCountElem = document.getElementById('wetland-count');
+            const sinaderCountElem = document.getElementById('sinader-count');
+            const wetlandAreaElem = document.getElementById('wetland-area');
+            const sinaderTonnesElem = document.getElementById('sinader-tonnes');
+            const statusRegionElem = document.getElementById('status-region');
+            const zoomElem = document.getElementById('zoom-level');
+            const tabRegions = document.getElementById('tab-regions');
+            const exportLayerSelect = document.getElementById('export-layer');
+            const exportGeojsonButton = document.getElementById('export-geojson');
+            const exportShapefileButton = document.getElementById('export-shapefile');
+            const exportStatusElem = document.getElementById('export-status');
+            const exportStatusTextElem = document.getElementById('export-status-text');
+            const exportSpinnerElem = document.getElementById('export-spinner');
+            const bufferSourceSelect = document.getElementById('buffer-source');
+            const bufferDistanceInput = document.getElementById('buffer-distance');
+            const bufferScopeSelect = document.getElementById('buffer-scope');
+            const bufferDissolveInput = document.getElementById('buffer-dissolve');
+            const bufferRunButton = document.getElementById('buffer-run');
+            const bufferClearButton = document.getElementById('buffer-clear');
+            const bufferStatusElem = document.getElementById('buffer-status');
+            const bufferStatusTextElem = document.getElementById('buffer-status-text');
+            const bufferSpinnerElem = document.getElementById('buffer-spinner');
+            const bufferExportGeojsonButton = document.getElementById('buffer-export-geojson');
+            const bufferExportShapefileButton = document.getElementById('buffer-export-shapefile');
+            const intersectionLayerInputs = Array.from(document.querySelectorAll('.intersection-layer'));
+            const intersectionBufferInput = document.getElementById('intersection-buffer');
+            const intersectionScopeSelect = document.getElementById('intersection-scope');
+            const intersectionRunButton = document.getElementById('intersection-run');
+            const intersectionClearButton = document.getElementById('intersection-clear');
+            const intersectionStatusElem = document.getElementById('intersection-status');
+            const intersectionStatusTextElem = document.getElementById('intersection-status-text');
+            const intersectionSpinnerElem = document.getElementById('intersection-spinner');
+            const intersectionExportGeojsonButton = document.getElementById('intersection-export-geojson');
+            const intersectionExportShapefileButton = document.getElementById('intersection-export-shapefile');
+            const thematicLayerSelect = document.getElementById('thematic-layer');
+            const thematicFieldSelect = document.getElementById('thematic-field');
+            const thematicColorsInput = document.getElementById('thematic-colors');
+            const thematicApplyButton = document.getElementById('thematic-apply');
+            const thematicResetButton = document.getElementById('thematic-reset');
+            const thematicStatusElem = document.getElementById('thematic-status');
+            const legendToggle = document.getElementById('legend-toggle');
+            const legendContent = document.getElementById('legend-content');
+            const dashboardToggle = document.getElementById('dashboard-toggle');
+            const dashboardContent = document.getElementById('dashboard-content');
+            const dashboardMetricSelect = document.getElementById('dashboard-metric');
+            const dashboardTonnesElem = document.getElementById('dashboard-tonnes');
+            const dashboardEstablishmentsElem = document.getElementById('dashboard-establishments');
+            const dashboardRubrosElem = document.getElementById('dashboard-rubros');
+            const dashboardStatusElem = document.getElementById('dashboard-status');
+
+            let geojsonCache = null;
+            let features = [];
+            let sinaderFeatures = [];
+            let exportCount = 0;
+            let visibleCounts = { humedales: 0, sinader: 0 };
+            let bufferResult = null;
+            let bufferDbPromise = null;
+            let intersectionResult = null;
+            let thematicStyle = null;
+            let rubroChart = null;
+            let distributionChart = null;
+
+            const dashboardState = {
+                rubros: new Set(),
+                metric: 'tonnes'
+            };
+
+            const NEON_PALETTE = ['#22d3ee', '#a3e635', '#facc15', '#fb7185', '#a78bfa', '#f97316'];
+            const THEMATIC_LAYERS = {
+                humedales: {
+                    label: 'Humedales',
+                    features: () => features,
+                    paints: [
+                        { layer: 'humedales-fill', property: 'fill-color', defaultValue: '#10b981' },
+                        { layer: 'humedales-line', property: 'line-color', defaultValue: '#34d399' }
+                    ]
+                },
+                sinader: {
+                    label: 'SINADER',
+                    features: () => sinaderFeatures,
+                    paints: [{ layer: 'sinader-points', property: 'circle-color', defaultValue: '#f59e0b' }]
+                }
+            };
+
+            // Función para calcular el Bounding Box (bbox) de un conjunto de GeoJSON Features
+            function getFeaturesBbox(featureList) {
+                let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+
+                featureList.forEach(feature => {
+                    const geom = feature.geometry;
+                    if (!geom) return;
+
+                    const processCoords = (ring) => {
+                        ring.forEach(([lng, lat]) => {
+                            if (lng < minLng) minLng = lng;
+                            if (lat < minLat) minLat = lat;
+                            if (lng > maxLng) maxLng = lng;
+                            if (lat > maxLat) maxLat = lat;
+                        });
+                    };
+
+                    if (geom.type === 'Point') {
+                        processCoords([geom.coordinates]);
+                    } else if (geom.type === 'Polygon') {
+                        geom.coordinates.forEach(processCoords);
+                    } else if (geom.type === 'MultiPolygon') {
+                        geom.coordinates.forEach(polygon => polygon.forEach(processCoords));
+                    }
+                });
+
+                if (minLng === Infinity) return null;
+                return [[minLng, minLat], [maxLng, maxLat]];
+            }
+
+            // Actualiza las estadísticas del panel a partir de la lista visible de features
+            function updateStats(wetlands, establishments) {
+                wetlandCountElem.textContent = wetlands.length;
+                sinaderCountElem.textContent = establishments.length;
+                const area = wetlands.reduce((sum, f) => sum + (Number(f.properties && f.properties.ha) || 0), 0);
+                const tonnes = establishments.reduce((sum, f) => sum + (Number(f.properties && f.properties.cantidad_toneladas) || 0), 0);
+                wetlandAreaElem.textContent = area.toLocaleString('es-CL', { maximumFractionDigits: 1 }) + ' ha';
+                sinaderTonnesElem.textContent = tonnes.toLocaleString('es-CL', { maximumFractionDigits: 1 }) + ' t';
+                visibleCounts = {
+                    humedales: wetlands.length,
+                    sinader: establishments.length,
+                    ambas: wetlands.length + establishments.length
+                };
+                updateExportSelection();
+            }
+
+            // Estado central: región del selector y rubros elegidos en el gráfico.
+            function getSelectedRegion() {
+                return select.value === 'ALL' ? null : select.value;
+            }
+
+            function getFilteredWetlands() {
+                const region = getSelectedRegion();
+                return region ? features.filter(feature => feature.properties && feature.properties.region === region) : features;
+            }
+
+            function getFilteredSinader() {
+                const region = getSelectedRegion();
+                return sinaderFeatures.filter(feature => (!region || feature.properties.region === region)
+                    && (!dashboardState.rubros.size || dashboardState.rubros.has(feature.properties.rubro)));
+            }
+
+            function getSinaderMapFilter() {
+                const filters = [];
+                const region = getSelectedRegion();
+                if (region) filters.push(['==', ['get', 'region'], region]);
+                if (dashboardState.rubros.size) filters.push(['in', ['get', 'rubro'], ['literal', Array.from(dashboardState.rubros)]]);
+                return filters.length === 0 ? null : filters.length === 1 ? filters[0] : ['all', ...filters];
+            }
+
+            function chartColors() {
+                const css = getComputedStyle(document.documentElement);
+                return {
+                    text: css.getPropertyValue('--glass-text').trim(),
+                    dim: css.getPropertyValue('--glass-text-dim').trim(),
+                    accent: css.getPropertyValue('--glass-accent').trim(),
+                    line: css.getPropertyValue('--glass-hairline-soft').trim()
+                };
+            }
+
+            function initDashboard() {
+                if (!window.echarts) {
+                    dashboardStatusElem.textContent = 'No se pudo cargar ECharts';
+                    return;
+                }
+                rubroChart = window.echarts.init(document.getElementById('dashboard-rubro-chart'), null, { renderer: 'canvas' });
+                distributionChart = window.echarts.init(document.getElementById('dashboard-distribution-chart'), null, { renderer: 'canvas' });
+                rubroChart.on('click', params => {
+                    if (params.componentType !== 'series') return;
+                    dashboardState.rubros.has(params.name) ? dashboardState.rubros.delete(params.name) : dashboardState.rubros.add(params.name);
+                    syncSinaderDashboard();
+                });
+                const resize = () => {
+                    rubroChart.resize();
+                    distributionChart.resize();
+                };
+                new ResizeObserver(resize).observe(dashboardContent);
+                window.addEventListener('resize', resize);
+                if (window.matchMedia('(max-width: 640px)').matches) {
+                    dashboardToggle.setAttribute('aria-expanded', 'false');
+                    dashboardContent.hidden = true;
+                }
+            }
+
+            function renderDashboard(establishments) {
+                if (!rubroChart || !distributionChart) return;
+                const colors = chartColors();
+                const summary = new Map();
+                establishments.forEach(feature => {
+                    const rubro = feature.properties.rubro || 'Sin rubro';
+                    const row = summary.get(rubro) || { rubro, tonnes: 0, establishments: 0 };
+                    row.tonnes += Number(feature.properties.cantidad_toneladas) || 0;
+                    row.establishments += 1;
+                    summary.set(rubro, row);
+                });
+                const rows = Array.from(summary.values()).sort((a, b) => b[dashboardState.metric] - a[dashboardState.metric]);
+                const tonnes = rows.reduce((total, row) => total + row.tonnes, 0);
+                dashboardTonnesElem.textContent = tonnes.toLocaleString('es-CL', { maximumFractionDigits: 1 }) + ' t';
+                dashboardEstablishmentsElem.textContent = establishments.length.toLocaleString('es-CL');
+                dashboardRubrosElem.textContent = rows.length;
+                dashboardStatusElem.textContent = dashboardState.rubros.size
+                    ? `${dashboardState.rubros.size} rubro(s) seleccionado(s). Haz clic para alternar.`
+                    : 'Haz clic en una barra para filtrar el mapa por rubro.';
+
+                rubroChart.setOption({
+                    animationDurationUpdate: 180,
+                    grid: { top: 4, right: 12, bottom: 8, left: 118, containLabel: false },
+                    tooltip: {
+                        trigger: 'axis',
+                        axisPointer: { type: 'shadow' },
+                        backgroundColor: 'rgba(15, 23, 42, 0.96)',
+                        borderColor: colors.line,
+                        textStyle: { color: colors.text },
+                        formatter: params => {
+                            const row = rows.find(item => item.rubro === params[0].name);
+                            const value = dashboardState.metric === 'tonnes'
+                                ? row.tonnes.toLocaleString('es-CL', { maximumFractionDigits: 1 }) + ' t'
+                                : row.establishments.toLocaleString('es-CL');
+                            return `<b>${row.rubro}</b><br>${dashboardState.metric === 'tonnes' ? 'Toneladas' : 'Establecimientos'}: ${value}`;
+                        }
+                    },
+                    xAxis: { type: 'value', show: false },
+                    yAxis: {
+                        type: 'category',
+                        data: rows.map(row => row.rubro).reverse(),
+                        axisLabel: { color: colors.dim, fontSize: 9, width: 105, overflow: 'truncate' },
+                        axisTick: { show: false },
+                        axisLine: { show: false }
+                    },
+                    series: [{
+                        type: 'bar',
+                        barMaxWidth: 12,
+                        data: rows.slice().reverse().map(row => ({
+                            value: row[dashboardState.metric],
+                            itemStyle: { color: dashboardState.rubros.size && !dashboardState.rubros.has(row.rubro) ? 'rgba(34, 211, 238, 0.24)' : dashboardState.rubros.has(row.rubro) ? '#facc15' : colors.accent }
+                        }))
+                    }]
+                }, true);
+
+                const values = establishments.map(feature => Number(feature.properties.cantidad_toneladas) || 0).filter(value => value >= 0);
+                if (!values.length) {
+                    distributionChart.clear();
+                    return;
+                }
+                const logs = values.map(value => Math.log10(value + 1));
+                const min = Math.min(...logs);
+                const max = Math.max(...logs);
+                const binCount = 10;
+                const bins = Array(binCount).fill(0);
+                logs.forEach(value => bins[Math.min(binCount - 1, Math.floor((value - min) / (max - min || 1) * binCount))] += 1);
+                const labels = bins.map((_, index) => `${Math.round(Math.pow(10, min + (max - min) * index / binCount) - 1).toLocaleString('es-CL')}`);
+                distributionChart.setOption({
+                    animationDurationUpdate: 180,
+                    grid: { top: 8, right: 8, bottom: 30, left: 32 },
+                    tooltip: {
+                        trigger: 'axis',
+                        backgroundColor: 'rgba(15, 23, 42, 0.96)',
+                        borderColor: colors.line,
+                        textStyle: { color: colors.text },
+                        formatter: params => `Desde ${params[0].axisValue} t<br>Establecimientos: ${params[0].value}`
+                    },
+                    xAxis: { type: 'category', data: labels, axisLabel: { color: colors.dim, fontSize: 8, hideOverlap: true }, axisTick: { show: false }, axisLine: { lineStyle: { color: colors.line } } },
+                    yAxis: { type: 'value', axisLabel: { color: colors.dim, fontSize: 8 }, splitLine: { lineStyle: { color: colors.line } } },
+                    series: [{ type: 'bar', data: bins, barMaxWidth: 18, itemStyle: { color: '#a78bfa' } }]
+                }, true);
+            }
+
+            function syncSinaderDashboard() {
+                const wetlands = getFilteredWetlands();
+                const establishments = getFilteredSinader();
+                map.setFilter('sinader-points', getSinaderMapFilter());
+                updateStats(wetlands, establishments);
+                renderDashboard(establishments);
+            }
+
+            function hslToHex(hue, saturation = 92, lightness = 62) {
+                const s = saturation / 100;
+                const l = lightness / 100;
+                const chroma = (1 - Math.abs(2 * l - 1)) * s;
+                const x = chroma * (1 - Math.abs((hue / 60) % 2 - 1));
+                const m = l - chroma / 2;
+                const [r, g, b] = hue < 60 ? [chroma, x, 0] : hue < 120 ? [x, chroma, 0] : hue < 180 ? [0, chroma, x] : hue < 240 ? [0, x, chroma] : hue < 300 ? [x, 0, chroma] : [chroma, 0, x];
+                return `#${[r, g, b].map(value => Math.round((value + m) * 255).toString(16).padStart(2, '0')).join('')}`;
+            }
+
+            function parseColors(value) {
+                if (!value.trim()) return [];
+                const colors = value.split(',').map(color => color.trim());
+                if (colors.some(color => !/^#[0-9a-f]{6}$/i.test(color))) {
+                    throw new Error('Usa colores hexadecimales, por ejemplo #22d3ee');
+                }
+                return colors;
+            }
+
+            function colorRamp(count, customColors = []) {
+                return Array.from({ length: count }, (_, index) => customColors[index]
+                    || NEON_PALETTE[index]
+                    || hslToHex((index * 137.508) % 360));
+            }
+
+            // Lógica de mapa: construye reglas MapLibre desde los atributos de la capa.
+            function applyDynamicColor(layerId, field, { colors = [] } = {}) {
+                const definition = THEMATIC_LAYERS[layerId];
+                if (!definition) throw new Error('Capa temática no disponible');
+                if (!Array.isArray(colors) || colors.some(color => !/^#[0-9a-f]{6}$/i.test(color))) {
+                    throw new Error('Los colores deben ser hexadecimales, por ejemplo #22d3ee');
+                }
+                const values = definition.features()
+                    .map(feature => feature.properties && feature.properties[field])
+                    .filter(value => value !== null && value !== undefined && value !== '');
+                if (!values.length) throw new Error('El campo no contiene valores para colorear');
+
+                const numeric = values.every(value => typeof value === 'number' && Number.isFinite(value));
+                let expression;
+                let rules;
+
+                if (numeric) {
+                    const min = Math.min(...values);
+                    const max = Math.max(...values);
+                    const stopCount = Math.min(5, Math.max(2, colors.length || 5));
+                    const stops = min === max
+                        ? [min]
+                        : Array.from({ length: stopCount }, (_, index) => min + (max - min) * index / (stopCount - 1));
+                    const ramp = colorRamp(stops.length, colors);
+                    expression = stops.length === 1
+                        ? ramp[0]
+                        : ['interpolate', ['linear'], ['to-number', ['get', field]], ...stops.flatMap((stop, index) => [stop, ramp[index]])];
+                    rules = stops.map((stop, index) => ({
+                        color: ramp[index],
+                        label: Number(stop).toLocaleString('es-CL', { maximumFractionDigits: 2 })
+                    }));
+                } else {
+                    const categories = Array.from(new Set(values.map(String))).sort((a, b) => a.localeCompare(b, 'es'));
+                    if (categories.length > 64) throw new Error(`El campo tiene ${categories.length} categorías; elige uno con hasta 64`);
+                    const ramp = colorRamp(categories.length, colors);
+                    expression = ['match', ['to-string', ['get', field]], ...categories.flatMap((category, index) => [category, ramp[index]]), '#64748b'];
+                    rules = categories.map((category, index) => ({ color: ramp[index], label: category }));
+                }
+
+                definition.paints.forEach(target => map.setPaintProperty(target.layer, target.property, expression));
+                thematicStyle = { layerId, field, numeric, rules, expression };
+                return thematicStyle;
+            }
+
+            function resetDynamicColor(layerId) {
+                const definition = THEMATIC_LAYERS[layerId];
+                definition.paints.forEach(target => map.setPaintProperty(target.layer, target.property, target.defaultValue));
+                thematicStyle = null;
+            }
+
+            // Lógica de interfaz: la leyenda se pinta desde las reglas que MapLibre recibió.
+            function renderLegend(style) {
+                legendContent.replaceChildren();
+                if (!style) {
+                    const note = document.createElement('p');
+                    note.className = 'legend-note';
+                    note.textContent = 'Aplica un color dinámico para ver sus reglas.';
+                    legendContent.appendChild(note);
+                    return;
+                }
+
+                const title = document.createElement('p');
+                title.className = 'legend-title';
+                title.textContent = `${THEMATIC_LAYERS[style.layerId].label} · ${style.field}`;
+                legendContent.appendChild(title);
+                style.rules.forEach(rule => {
+                    const item = document.createElement('div');
+                    item.className = 'legend-item';
+                    const swatch = document.createElement('span');
+                    swatch.className = 'legend-swatch';
+                    swatch.style.backgroundColor = rule.color;
+                    const label = document.createElement('span');
+                    label.textContent = rule.label;
+                    item.append(swatch, label);
+                    legendContent.appendChild(item);
+                });
+                const note = document.createElement('p');
+                note.className = 'legend-note';
+                note.textContent = style.numeric
+                    ? 'Escala continua entre los valores mínimo y máximo.'
+                    : 'Una regla de color por categoría.';
+                legendContent.appendChild(note);
+            }
+
+            function populateThematicFields() {
+                const definition = THEMATIC_LAYERS[thematicLayerSelect.value];
+                const keys = new Set();
+                definition.features().forEach(feature => {
+                    Object.entries(feature.properties || {}).forEach(([key, value]) => {
+                        if (['string', 'number'].includes(typeof value) && value !== '') keys.add(key);
+                    });
+                });
+                thematicFieldSelect.replaceChildren();
+                Array.from(keys).sort((a, b) => a.localeCompare(b, 'es')).forEach(key => {
+                    const option = document.createElement('option');
+                    option.value = key;
+                    option.textContent = key;
+                    thematicFieldSelect.appendChild(option);
+                });
+                if (keys.has('region')) thematicFieldSelect.value = 'region';
+            }
+
+            function setThematicStatus(message) {
+                thematicStatusElem.textContent = message;
+            }
+
+            function setActiveRegion(name) {
+                const label = name === 'ALL' ? 'Todas' : name;
+                statusRegionElem.textContent = label;
+            }
+
+            function escapeHtml(value) {
+                return String(value).replace(/[&<>"']/g, char => ({
+                    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+                })[char]);
+            }
+
+            function populateRegions(featureList) {
+                select.length = 1;
+                const regions = new Set(featureList.map(f => f.properties && f.properties.region).filter(Boolean));
+                Array.from(regions).sort((a, b) => a.localeCompare(b, 'es')).forEach(regionName => {
+                    const opt = document.createElement('option');
+                    opt.value = regionName;
+                    opt.textContent = regionName;
+                    select.appendChild(opt);
+                });
+            }
+
+            // Reutiliza el estado central para exportación y geoprocesos, no solo para los gráficos.
+            function getFeaturesForLayer(layer, respectFilter) {
+                const withLayer = (list, layer) => list.map(feature => ({
+                    ...feature,
+                    properties: { ...feature.properties, capa: layer }
+                }));
+                const wetlands = respectFilter ? getFilteredWetlands() : features;
+                const establishments = respectFilter ? getFilteredSinader() : sinaderFeatures;
+                const bufferFeatures = bufferResult ? bufferResult.geojson.features : [];
+                return layer === 'ambas'
+                    ? [...withLayer(wetlands, 'humedales'), ...withLayer(establishments, 'sinader')]
+                    : layer === 'humedales'
+                        ? withLayer(wetlands, 'humedales')
+                        : layer === 'sinader'
+                            ? withLayer(establishments, 'sinader')
+                            : layer === 'buffer'
+                                // El buffer ya materializa el contexto con que fue generado; dissolve no conserva región.
+                                ? withLayer(bufferFeatures, 'buffer')
+                                : [];
+            }
+
+            function getActiveSelection() {
+                return {
+                    type: 'FeatureCollection',
+                    features: getFeaturesForLayer(exportLayerSelect.value, true)
+                };
+            }
+
+            function updateExportSelection() {
+                const layer = exportLayerSelect.value;
+                exportCount = visibleCounts[layer] || 0;
+                const label = layer === 'humedales' ? 'humedales'
+                    : layer === 'sinader' ? 'establecimientos SINADER'
+                        : 'entidades de ambas capas';
+                const message = !layer
+                    ? 'Selecciona una capa'
+                    : exportCount
+                        ? `${exportCount.toLocaleString('es-CL')} ${label} disponibles`
+                        : 'Sin datos para exportar';
+                setExportState(false, message);
+            }
+
+            function setExportState(loading, message) {
+                exportStatusElem.setAttribute('aria-busy', String(loading));
+                exportSpinnerElem.hidden = !loading;
+                exportStatusTextElem.textContent = message;
+                select.disabled = loading;
+                exportLayerSelect.disabled = loading;
+                exportGeojsonButton.disabled = loading || exportCount === 0;
+                exportShapefileButton.disabled = loading || exportCount === 0 || !window.shpwrite;
+                exportShapefileButton.title = window.shpwrite ? '' : 'No se pudo cargar la librería Shapefile';
+            }
+
+            function downloadBlob(blob, filename) {
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = filename;
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 0);
+            }
+
+            function exportFilename(extension) {
+                const layer = exportLayerSelect.value;
+                const region = select.value === 'ALL' ? 'chile' : select.value
+                    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+                    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+                return `visor-ambiental-${layer}-${region}.${extension}`;
+            }
+
+            // Una sola entrada reemplazable evita que resultados pesados se acumulen.
+            function openBufferDb() {
+                if (bufferDbPromise) return bufferDbPromise;
+                bufferDbPromise = new Promise((resolve, reject) => {
+                    const request = indexedDB.open('visor-ambiental', 1);
+                    request.onupgradeneeded = () => request.result.createObjectStore('buffers', { keyPath: 'id' });
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+                return bufferDbPromise;
+            }
+
+            async function readBufferCache() {
+                const db = await openBufferDb();
+                return new Promise((resolve, reject) => {
+                    const request = db.transaction('buffers').objectStore('buffers').get('latest');
+                    request.onsuccess = () => resolve(request.result || null);
+                    request.onerror = () => reject(request.error);
+                });
+            }
+
+            async function writeBufferCache(record) {
+                const db = await openBufferDb();
+                return new Promise((resolve, reject) => {
+                    const transaction = db.transaction('buffers', 'readwrite');
+                    transaction.objectStore('buffers').put({ id: 'latest', ...record });
+                    transaction.oncomplete = resolve;
+                    transaction.onerror = () => reject(transaction.error);
+                });
+            }
+
+            async function clearBufferCache() {
+                const db = await openBufferDb();
+                return new Promise((resolve, reject) => {
+                    const transaction = db.transaction('buffers', 'readwrite');
+                    transaction.objectStore('buffers').delete('latest');
+                    transaction.oncomplete = resolve;
+                    transaction.onerror = () => reject(transaction.error);
+                });
+            }
+
+            function runBufferWorker(payload) {
+                // Los Workers locales están bloqueados por los navegadores en file://.
+                // GitHub Pages usa HTTPS y ejecuta el Worker; esta ruta mantiene el visor local operativo.
+                if (location.protocol === 'file:') {
+                    return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+                        .then(() => processBufferLocally(payload));
+                }
+
+                return new Promise((resolve, reject) => {
+                    const worker = new Worker('./buffer-worker.js');
+                    worker.onmessage = ({ data }) => {
+                        worker.terminate();
+                        data.error ? reject(new Error(data.error)) : resolve(data.result);
+                    };
+                    worker.onerror = error => {
+                        worker.terminate();
+                        reject(new Error(error.message || 'Error ejecutando Turf.js'));
+                    };
+                    worker.postMessage(payload);
+                });
+            }
+
+            function runIntersectionWorker(layers) {
+                if (location.protocol === 'file:') {
+                    return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+                        .then(() => window.runSpatialIntersection(layers));
+                }
+
+                return new Promise((resolve, reject) => {
+                    const worker = new Worker('./intersection-worker.js');
+                    worker.onmessage = ({ data }) => {
+                        worker.terminate();
+                        data.error ? reject(new Error(data.error)) : resolve(data);
+                    };
+                    worker.onerror = error => {
+                        worker.terminate();
+                        reject(new Error(error.message || 'Error ejecutando la intersección'));
+                    };
+                    worker.postMessage({ layers });
+                });
+            }
+
+            function processBufferLocally({ geojson, distance, dissolve }) {
+                if (!window.turf) throw new Error('No se pudo cargar Turf.js');
+                const individual = window.turf.flatten(window.turf.buffer(geojson, distance, { units: 'meters', steps: 8 }));
+                individual.features.forEach(feature => {
+                    feature.properties = { ...feature.properties, buffer_m: distance, disuelto: false };
+                });
+
+                const result = dissolve && individual.features.length
+                    ? window.turf.dissolve(individual)
+                    : individual;
+
+                if (dissolve) {
+                    result.features.forEach(feature => {
+                        feature.properties = { buffer_m: distance, disuelto: true, entidades_origen: geojson.features.length };
+                    });
+                }
+                return result;
+            }
+
+            function setBufferState(loading, message) {
+                bufferStatusElem.setAttribute('aria-busy', String(loading));
+                bufferSpinnerElem.hidden = !loading;
+                bufferStatusTextElem.textContent = message;
+                [bufferSourceSelect, bufferDistanceInput, bufferScopeSelect, bufferDissolveInput].forEach(control => control.disabled = loading);
+                bufferRunButton.disabled = loading;
+                bufferClearButton.disabled = loading || !bufferResult;
+                bufferExportGeojsonButton.disabled = loading || !bufferResult;
+                bufferExportShapefileButton.disabled = loading || !bufferResult || !window.shpwrite;
+            }
+
+            function showBufferResult(record, cached, fitBounds) {
+                bufferResult = record;
+                intersectionBufferInput.disabled = false;
+                map.getSource('buffer-result').setData(record.geojson);
+                const { inputCount, distance, dissolve, source, scope, region } = record.metadata;
+                bufferSourceSelect.value = source;
+                bufferScopeSelect.value = scope;
+                bufferDistanceInput.value = distance;
+                bufferDissolveInput.checked = dissolve;
+                if (cached && scope === 'filtered' && region && select.value !== region) {
+                    select.value = region;
+                    select.dispatchEvent(new Event('change'));
+                }
+                const origin = source === 'ambas' ? 'ambas capas' : source;
+                const context = scope === 'filtered' ? 'filtro activo' : 'dataset completo';
+                const cacheLabel = cached ? 'Caché restaurada' : 'Buffer generado';
+                setBufferState(false, `${cacheLabel}: ${record.geojson.features.length} polígonos desde ${inputCount} entidades (${origin}, ${context}, ${distance} m${dissolve ? ', dissolve' : ''})`);
+
+                if (fitBounds) {
+                    const bounds = getFeaturesBbox(record.geojson.features);
+                    if (bounds) map.fitBounds(bounds, { padding: 60, maxZoom: 14, duration: prefersReducedMotion ? 0 : 1200 });
+                }
+            }
+
+            function bufferFilename(extension) {
+                if (!bufferResult) return `buffer.${extension}`;
+                const { source, distance, dissolve } = bufferResult.metadata;
+                return `buffer-${source}-${distance}m-${dissolve ? 'disuelto' : 'individual'}.${extension}`;
+            }
+
+            async function generateBuffer() {
+                const distance = Number(bufferDistanceInput.value);
+                if (!Number.isFinite(distance) || distance < 1 || distance > 1000000) {
+                    setBufferState(false, 'Ingresa una distancia entre 1 y 1.000.000 metros');
+                    return;
+                }
+
+                const source = bufferSourceSelect.value;
+                const scope = bufferScopeSelect.value;
+                const dissolve = bufferDissolveInput.checked;
+                const inputFeatures = getFeaturesForLayer(source, scope === 'filtered');
+                if (!inputFeatures.length) {
+                    setBufferState(false, 'El contexto seleccionado no contiene entidades');
+                    return;
+                }
+
+                const filter = scope === 'filtered' ? map.getFilter('humedales-fill') : null;
+                const cacheKey = JSON.stringify({ source, scope, filter, distance, dissolve, steps: 8 });
+                setBufferState(true, `Procesando ${inputFeatures.length.toLocaleString('es-CL')} entidades...`);
+
+                try {
+                    const cached = await readBufferCache().catch(() => null);
+                    if (cached && cached.cacheKey === cacheKey) {
+                        showBufferResult(cached, true, true);
+                        return;
+                    }
+
+                    const geojson = await runBufferWorker({
+                        geojson: { type: 'FeatureCollection', features: inputFeatures },
+                        distance,
+                        dissolve
+                    });
+                    const record = {
+                        cacheKey,
+                        geojson,
+                        metadata: { source, scope, distance, dissolve, region: select.value, inputCount: inputFeatures.length }
+                    };
+                    await writeBufferCache(record).catch(error => console.warn('IndexedDB no disponible:', error));
+                    showBufferResult(record, false, true);
+                } catch (error) {
+                    console.error('Error generando buffer:', error);
+                    setBufferState(false, `No fue posible generar el buffer: ${error.message}`);
+                }
+            }
+
+            function setIntersectionState(loading, message) {
+                intersectionStatusElem.setAttribute('aria-busy', String(loading));
+                intersectionSpinnerElem.hidden = !loading;
+                intersectionStatusTextElem.textContent = message;
+                intersectionLayerInputs.forEach(input => {
+                    input.disabled = loading || (input.value === 'buffer' && !bufferResult);
+                });
+                intersectionScopeSelect.disabled = loading;
+                intersectionRunButton.disabled = loading;
+                intersectionClearButton.disabled = loading || !intersectionResult;
+                intersectionExportGeojsonButton.disabled = loading || !intersectionResult;
+                intersectionExportShapefileButton.disabled = loading || !intersectionResult || !window.shpwrite;
+            }
+
+            function intersectionFilename(extension) {
+                const { layers, scope } = intersectionResult.metadata;
+                return `interseccion-${layers.join('-')}-${scope}.${extension}`;
+            }
+
+            function showIntersectionResult(record, fitBounds) {
+                intersectionResult = record;
+                map.getSource('intersection-result').setData(record.geojson);
+                const type = record.geojson.features[0] && record.geojson.features[0].geometry.type || 'sin geometría';
+                const warning = record.warnings.skipped ? `, ${record.warnings.skipped} advertencias topológicas` : '';
+                setIntersectionState(false, `${record.geojson.features.length} resultados ${type} en EPSG:4326${warning}`);
+
+                if (fitBounds) {
+                    const bounds = getFeaturesBbox(record.geojson.features);
+                    if (bounds) map.fitBounds(bounds, { padding: 60, maxZoom: 14, duration: prefersReducedMotion ? 0 : 1200 });
+                }
+            }
+
+            async function generateIntersection() {
+                const layerIds = intersectionLayerInputs.filter(input => input.checked).map(input => input.value);
+                if (layerIds.length < 2) {
+                    setIntersectionState(false, 'Selecciona al menos dos capas');
+                    return;
+                }
+
+                const scope = intersectionScopeSelect.value;
+                const respectFilter = scope === 'filtered';
+                const layers = layerIds.map(id => ({
+                    id,
+                    geojson: { type: 'FeatureCollection', features: getFeaturesForLayer(id, respectFilter) }
+                }));
+                const emptyLayer = layers.find(layer => !layer.geojson.features.length);
+                if (emptyLayer) {
+                    setIntersectionState(false, `La capa ${emptyLayer.id} no contiene entidades en este contexto`);
+                    return;
+                }
+
+                setIntersectionState(true, `Intersectando ${layers.map(layer => layer.id).join(', ')}...`);
+                try {
+                    const result = await runIntersectionWorker(layers);
+                    showIntersectionResult({ ...result, metadata: { layers: layerIds, scope } }, true);
+                } catch (error) {
+                    console.error('Error generando intersección:', error);
+                    setIntersectionState(false, `No fue posible intersectar: ${error.message}`);
+                }
+            }
+
+            // Mostrar nivel de zoom en la barra de estado
+            map.on('zoom', () => { zoomElem.textContent = map.getZoom().toFixed(1); });
+
+            // Cargar capa de GeoJSON al cargar el mapa
+            map.on('style.load', async () => {
+                try {
+                    // Estrategia híbrida: datos embebidos si existen (evita bloqueo CORS en file://), o fetch como fallback
+                    if (window.HUMEDALES_GEOJSON) {
+                        geojsonCache = window.HUMEDALES_GEOJSON;
+                    } else {
+                        const response = await fetch('./Humedales Urbanos.geojson');
+                        geojsonCache = await response.json();
+                    }
+
+                    // Añadir Fuente de Datos GeoJSON
+                    map.addSource('humedales', {
+                        type: 'geojson',
+                        data: geojsonCache
+                    });
+
+                    // Añadir Capa de Relleno Polígonos
+                    map.addLayer({
+                        id: 'humedales-fill',
+                        type: 'fill',
+                        source: 'humedales',
+                        paint: {
+                            'fill-color': '#10b981',
+                            'fill-opacity': 0.55
+                        }
+                    });
+
+                    sinaderFeatures = (window.SINADER_GEOJSON && window.SINADER_GEOJSON.features) || [];
+                    map.addSource('sinader', {
+                        type: 'geojson',
+                        data: window.SINADER_GEOJSON
+                    });
+                    map.addLayer({
+                        id: 'sinader-points',
+                        type: 'circle',
+                        source: 'sinader',
+                        paint: {
+                            'circle-radius': ['interpolate', ['linear'], ['zoom'], 4, 3, 12, 8],
+                            'circle-color': '#f59e0b',
+                            'circle-opacity': 0.72,
+                            'circle-stroke-color': '#fde68a',
+                            'circle-stroke-width': 1
+                        }
+                    });
+
+                    // Añadir Capa de Borde
+                    map.addLayer({
+                        id: 'humedales-line',
+                        type: 'line',
+                        source: 'humedales',
+                        paint: {
+                            'line-color': '#34d399',
+                            'line-width': 1.5
+                        }
+                    });
+
+                    map.addSource('buffer-result', {
+                        type: 'geojson',
+                        data: { type: 'FeatureCollection', features: [] }
+                    });
+                    map.addLayer({
+                        id: 'buffer-result-fill',
+                        type: 'fill',
+                        source: 'buffer-result',
+                        paint: {
+                            'fill-color': '#a855f7',
+                            'fill-opacity': 0.28
+                        }
+                    });
+                    map.addLayer({
+                        id: 'buffer-result-line',
+                        type: 'line',
+                        source: 'buffer-result',
+                        paint: {
+                            'line-color': '#d8b4fe',
+                            'line-width': 2
+                        }
+                    });
+
+                    map.addSource('intersection-result', {
+                        type: 'geojson',
+                        data: { type: 'FeatureCollection', features: [] }
+                    });
+                    map.addLayer({
+                        id: 'intersection-result-fill',
+                        type: 'fill',
+                        source: 'intersection-result',
+                        paint: { 'fill-color': '#0ea5e9', 'fill-opacity': 0.34 }
+                    });
+                    map.addLayer({
+                        id: 'intersection-result-line',
+                        type: 'line',
+                        source: 'intersection-result',
+                        paint: { 'line-color': '#7dd3fc', 'line-width': 2 }
+                    });
+                    map.addLayer({
+                        id: 'intersection-result-point',
+                        type: 'circle',
+                        source: 'intersection-result',
+                        paint: {
+                            'circle-radius': 6,
+                            'circle-color': '#0ea5e9',
+                            'circle-stroke-color': '#e0f2fe',
+                            'circle-stroke-width': 1
+                        }
+                    });
+
+                    features = geojsonCache.features || [];
+                    setActiveRegion('ALL');
+
+                    populateRegions([...features, ...sinaderFeatures]);
+                    populateThematicFields();
+                    renderLegend(null);
+                    initDashboard();
+                    syncSinaderDashboard();
+
+                    // Evento de Cambio en el Menú Desplegable (Filtro)
+                    select.addEventListener('change', (e) => {
+                        const selectedRegion = e.target.value;
+                        const wetlandLayers = ['humedales-fill', 'humedales-line'];
+
+                        if (selectedRegion === 'ALL') {
+                            // Limpiar filtros y mostrar todas las regiones
+                            wetlandLayers.forEach(layer => map.setFilter(layer, null));
+                            setActiveRegion('ALL');
+                            syncSinaderDashboard();
+
+                            // Volver a la vista general de Chile
+                            map.flyTo({
+                                center: [-71.5430, -35.6751],
+                                zoom: 4,
+                                duration: prefersReducedMotion ? 0 : 1200
+                            });
+                        } else {
+                            // Aplicar filtro por región
+                            const filterExpr = ['==', ['get', 'region'], selectedRegion];
+                            wetlandLayers.forEach(layer => map.setFilter(layer, filterExpr));
+
+                            setActiveRegion(selectedRegion);
+                            syncSinaderDashboard();
+
+                            // Combinar ambas fuentes ya filtradas por el estado central para encuadrar el mapa.
+                            const filteredWetlands = getFilteredWetlands();
+                            const filteredSinader = getFilteredSinader();
+                            const bounds = getFeaturesBbox([...filteredWetlands, ...filteredSinader]);
+                            if (bounds) {
+                                map.fitBounds(bounds, {
+                                    padding: 60,
+                                    maxZoom: 12,
+                                    duration: prefersReducedMotion ? 0 : 1200
+                                });
+                            }
+                        }
+                    });
+
+                    // Agregar Popups interactivos al hacer clic en un humedal
+                    map.on('click', 'humedales-fill', (e) => {
+                        if (!e.features || e.features.length === 0) return;
+                        const props = e.features[0].properties;
+                        const simbioUrl = /^https?:\/\//.test(props.url_simbio || '') ? escapeHtml(props.url_simbio) : '';
+
+                        const content = `
+                            <div class="font-sans">
+                                <div class="flex items-center gap-1.5 mb-2.5">
+                                    <span class="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-300 bg-emerald-400/10 border border-emerald-400/20 rounded-full px-2.5 py-1">
+                                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                                        Humedal Urbano
+                                    </span>
+                                </div>
+                                <h3 class="text-sm font-semibold text-slate-50 leading-snug mb-3">${escapeHtml(props.nombre_humedal || 'Humedal Urbano')}</h3>
+                                <dl class="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                                    <dt class="text-slate-400">Comuna</dt>
+                                    <dd class="text-slate-100 font-medium text-right">${escapeHtml(props.comuna || 'N/A')}</dd>
+                                    <dt class="text-slate-400">Región</dt>
+                                    <dd class="text-slate-100 font-medium text-right">${escapeHtml(props.region || 'N/A')}</dd>
+                                    <dt class="text-slate-400">Superficie</dt>
+                                    <dd class="text-slate-100 font-medium text-right">${props.ha != null ? props.ha.toFixed(2) + ' ha' : 'N/A'}</dd>
+                                </dl>
+                                ${simbioUrl ? `<a href="${simbioUrl}" target="_blank" rel="noopener" class="mt-3.5 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-100 bg-white/10 border border-white/15 rounded-full px-3.5 py-1.5 hover:bg-white/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-400 focus-visible:outline-offset-2 transition-colors">Ver en SIMBIO <span aria-hidden="true">&rarr;</span></a>` : ''}
+                            </div>
+                        `;
+
+                        new maplibregl.Popup()
+                            .setLngLat(e.lngLat)
+                            .setHTML(content)
+                            .addTo(map);
+                    });
+
+                    // Cambiar cursor a pointer al pasar sobre humedales
+                    map.on('mouseenter', 'humedales-fill', () => map.getCanvas().style.cursor = 'pointer');
+                    map.on('mouseleave', 'humedales-fill', () => map.getCanvas().style.cursor = '');
+
+                    map.on('click', 'sinader-points', (e) => {
+                        if (!e.features || e.features.length === 0) return;
+                        const props = e.features[0].properties;
+                        const tonnes = Number(props.cantidad_toneladas).toLocaleString('es-CL', { maximumFractionDigits: 2 });
+                        new maplibregl.Popup()
+                            .setLngLat(e.lngLat)
+                            .setHTML(`
+                                <div class="font-sans">
+                                    <span class="inline-flex text-[10px] font-semibold uppercase tracking-wider text-amber-200 bg-amber-400/10 border border-amber-300/20 rounded-full px-2.5 py-1 mb-2.5">SINADER 2024</span>
+                                    <h3 class="text-sm font-semibold text-slate-50 leading-snug mb-3">${escapeHtml(props.nombre_establecimiento || 'Establecimiento')}</h3>
+                                    <dl class="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                                        <dt class="text-slate-400">Razón social</dt><dd class="text-slate-100 font-medium text-right">${escapeHtml(props.razon_social || 'N/A')}</dd>
+                                        <dt class="text-slate-400">Comuna</dt><dd class="text-slate-100 font-medium text-right">${escapeHtml(props.comuna || 'N/A')}</dd>
+                                        <dt class="text-slate-400">Región</dt><dd class="text-slate-100 font-medium text-right">${escapeHtml(props.region || 'N/A')}</dd>
+                                        <dt class="text-slate-400">Toneladas acumuladas</dt><dd class="text-slate-100 font-medium text-right">${tonnes} t</dd>
+                                        <dt class="text-slate-400">Declaraciones</dt><dd class="text-slate-100 font-medium text-right">${props.declaraciones}</dd>
+                                        <dt class="text-slate-400">Registros</dt><dd class="text-slate-100 font-medium text-right">${props.registros}</dd>
+                                    </dl>
+                                </div>`)
+                            .addTo(map);
+                    });
+                    map.on('mouseenter', 'sinader-points', () => map.getCanvas().style.cursor = 'pointer');
+                    map.on('mouseleave', 'sinader-points', () => map.getCanvas().style.cursor = '');
+
+                    tabRegions.addEventListener('click', () => select.focus());
+                    exportLayerSelect.addEventListener('change', updateExportSelection);
+                    dashboardMetricSelect.addEventListener('change', e => {
+                        dashboardState.metric = e.target.value;
+                        renderDashboard(getFilteredSinader());
+                    });
+                    dashboardToggle.addEventListener('click', () => {
+                        const expanded = dashboardToggle.getAttribute('aria-expanded') === 'true';
+                        dashboardToggle.setAttribute('aria-expanded', String(!expanded));
+                        dashboardContent.hidden = expanded;
+                        if (!expanded) requestAnimationFrame(() => {
+                            rubroChart && rubroChart.resize();
+                            distributionChart && distributionChart.resize();
+                        });
+                    });
+                    thematicLayerSelect.addEventListener('change', populateThematicFields);
+                    thematicApplyButton.addEventListener('click', () => {
+                        try {
+                            const style = applyDynamicColor(
+                                thematicLayerSelect.value,
+                                thematicFieldSelect.value,
+                                { colors: parseColors(thematicColorsInput.value) }
+                            );
+                            renderLegend(style);
+                            legendContent.hidden = false;
+                            legendToggle.setAttribute('aria-expanded', 'true');
+                            setThematicStatus(`${style.rules.length} reglas aplicadas a ${THEMATIC_LAYERS[style.layerId].label}`);
+                        } catch (error) {
+                            setThematicStatus(error.message);
+                        }
+                    });
+                    thematicResetButton.addEventListener('click', () => {
+                        const layerId = thematicStyle ? thematicStyle.layerId : thematicLayerSelect.value;
+                        resetDynamicColor(layerId);
+                        renderLegend(null);
+                        setThematicStatus('Color original restablecido');
+                    });
+                    legendToggle.addEventListener('click', () => {
+                        const expanded = legendToggle.getAttribute('aria-expanded') === 'true';
+                        legendToggle.setAttribute('aria-expanded', String(!expanded));
+                        legendContent.hidden = expanded;
+                    });
+                    window.applyDynamicColor = (layerId, field, options) => {
+                        const style = applyDynamicColor(layerId, field, options);
+                        renderLegend(style);
+                        return style;
+                    };
+                    bufferRunButton.addEventListener('click', generateBuffer);
+
+                    bufferClearButton.addEventListener('click', async () => {
+                        bufferResult = null;
+                        intersectionBufferInput.checked = false;
+                        intersectionBufferInput.disabled = true;
+                        map.getSource('buffer-result').setData({ type: 'FeatureCollection', features: [] });
+                        await clearBufferCache().catch(error => console.warn('No fue posible limpiar IndexedDB:', error));
+                        setBufferState(false, 'Sin resultado temporal');
+                    });
+
+                    intersectionRunButton.addEventListener('click', generateIntersection);
+                    intersectionClearButton.addEventListener('click', () => {
+                        intersectionResult = null;
+                        map.getSource('intersection-result').setData({ type: 'FeatureCollection', features: [] });
+                        setIntersectionState(false, 'Selecciona dos o más capas');
+                    });
+
+                    intersectionExportGeojsonButton.addEventListener('click', () => {
+                        if (!intersectionResult) return;
+                        downloadBlob(
+                            new Blob([JSON.stringify(intersectionResult.geojson)], { type: 'application/geo+json' }),
+                            intersectionFilename('geojson')
+                        );
+                        setIntersectionState(false, 'Intersección GeoJSON descargada');
+                    });
+
+                    intersectionExportShapefileButton.addEventListener('click', async () => {
+                        if (!intersectionResult) return;
+                        setIntersectionState(true, 'Comprimiendo intersección Shapefile ZIP...');
+                        try {
+                            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                            const zip = await window.shpwrite.zip(intersectionResult.geojson, {
+                                outputType: 'blob',
+                                compression: 'DEFLATE',
+                                folder: 'interseccion',
+                                types: {
+                                    point: 'interseccion_puntos',
+                                    polygon: 'interseccion_poligonos',
+                                    polyline: 'interseccion_lineas'
+                                }
+                            });
+                            downloadBlob(zip, intersectionFilename('zip'));
+                            setIntersectionState(false, 'Intersección Shapefile ZIP descargada');
+                        } catch (error) {
+                            console.error('Error exportando intersección Shapefile:', error);
+                            setIntersectionState(false, 'No fue posible generar el ZIP de la intersección');
+                        }
+                    });
+
+                    bufferExportGeojsonButton.addEventListener('click', () => {
+                        if (!bufferResult) return;
+                        downloadBlob(
+                            new Blob([JSON.stringify(bufferResult.geojson)], { type: 'application/geo+json' }),
+                            bufferFilename('geojson')
+                        );
+                        setBufferState(false, 'Buffer GeoJSON descargado');
+                    });
+
+                    bufferExportShapefileButton.addEventListener('click', async () => {
+                        if (!bufferResult) return;
+                        setBufferState(true, 'Comprimiendo buffer Shapefile ZIP...');
+                        try {
+                            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                            const zip = await window.shpwrite.zip(bufferResult.geojson, {
+                                outputType: 'blob',
+                                compression: 'DEFLATE',
+                                folder: 'buffer',
+                                types: { polygon: 'area_influencia' }
+                            });
+                            downloadBlob(zip, bufferFilename('zip'));
+                            setBufferState(false, 'Buffer Shapefile ZIP descargado');
+                        } catch (error) {
+                            console.error('Error exportando buffer Shapefile:', error);
+                            setBufferState(false, 'No fue posible generar el ZIP del buffer');
+                        }
+                    });
+
+                    exportGeojsonButton.addEventListener('click', () => {
+                        const selection = getActiveSelection();
+                        if (!selection.features.length) return;
+                        downloadBlob(
+                            new Blob([JSON.stringify(selection)], { type: 'application/geo+json' }),
+                            exportFilename('geojson')
+                        );
+                        setExportState(false, 'GeoJSON descargado');
+                    });
+
+                    exportShapefileButton.addEventListener('click', async () => {
+                        const selection = getActiveSelection();
+                        if (!selection.features.length) return;
+                        setExportState(true, 'Comprimiendo Shapefile ZIP...');
+
+                        try {
+                            // Dos frames garantizan que el spinner se pinte antes del trabajo intensivo.
+                            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+                            const zip = await window.shpwrite.zip(selection, {
+                                outputType: 'blob',
+                                compression: 'DEFLATE',
+                                folder: 'visor-ambiental',
+                                types: {
+                                    point: 'sinader',
+                                    polygon: 'humedales'
+                                }
+                            });
+                            downloadBlob(zip, exportFilename('zip'));
+                            setExportState(false, 'Shapefile ZIP descargado');
+                        } catch (error) {
+                            console.error('Error exportando Shapefile:', error);
+                            setExportState(false, 'No fue posible generar el ZIP');
+                        }
+                    });
+
+                    const cachedBuffer = await readBufferCache().catch(() => null);
+                    if (cachedBuffer) showBufferResult(cachedBuffer, true, false);
+                    else setBufferState(false, 'Sin resultado temporal');
+                    setIntersectionState(false, 'Selecciona dos o más capas');
+
+                } catch (err) {
+                    console.error('Error cargando el archivo GeoJSON de humedales:', err);
+                }
+            });
+        });
+    </script>
+</body>
+
+</html>
