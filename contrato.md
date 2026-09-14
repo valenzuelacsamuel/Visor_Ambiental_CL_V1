@@ -31,7 +31,7 @@ Este documento actúa como contrato técnico, guía de arquitectura y bitácora 
 - **Agente:** OpenCode
 - **Acción:** Autenticación de GitHub CLI mediante el flujo web de código de dispositivo.
 - **Detalles:** Se verificó la sesión HTTPS de la cuenta `valenzuelacsamuel`; el token autorizado cuenta con acceso para crear y publicar repositorios. Se configuró la identidad de Git solo para este repositorio con el nombre `Samuel Valenzuela` y el correo privado de GitHub. Se agregó `.gitignore` para excluir el Excel fuente `gi-sinader-2024-ckan (1).xlsx` (41,48 MB), ya que el visor funciona con los datos procesados incluidos.
-- **Estado Actual:** Conexión confirmada. Git quedó instalado correctamente para el usuario en `C:\Users\samuelvalenzuela\AppData\Local\Programs\Git\cmd\git.exe`; la instalación por usuario explica que no exista en `C:\Program Files`. El repositorio local se inicializó en la rama `main` y los archivos necesarios fueron preparados para la primera versión; pendiente revisar su contenido y confirmar el historial local antes de publicar.
+- **Estado Actual:** Conexión confirmada. Git quedó instalado correctamente para el usuario en `C:\Users\samuelvalenzuela\AppData\Local\Programs\Git\cmd\git.exe`; la instalación por usuario explica que no exista en `C:\Program Files`. El repositorio local se inicializó en la rama `main` y la primera versión local fue creada. El repositorio público se creó en `https://github.com/valenzuelacsamuel/Visor_Ambiental_CL_V1` y fue vinculado como `origin`; pendiente guardar esta bitácora y enviar los historiales antes de habilitar GitHub Pages.
 
 ### [2026-08-29] - Contraste de opciones en selectores
 - **Agente:** OpenCode (Arquitecto Frontend y Experto en Visualización de Datos)
