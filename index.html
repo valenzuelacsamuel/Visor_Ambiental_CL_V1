@@ -587,7 +587,7 @@
             .sidebar { width: 248px; }
         }
 
-        /* A single DOM becomes two stacked bottom sheets below 768px. */
+        /* A single DOM keeps controls below and moves analytics into a side drawer below 768px. */
         @media (max-width: 767px) {
             .toolbar {
                 left: 16px;
@@ -601,8 +601,7 @@
             .brand-mark, .brand-sub, #tab-regions, .panel-live, .panel-note { display: none; }
             .brand-title { font-size: 12px; }
             .seg-tab { padding-inline: 10px; }
-            .sidebar,
-            .dashboard {
+            .sidebar {
                 --sheet-peek: 54px;
                 top: auto;
                 right: 8px;
@@ -622,15 +621,37 @@
                 gap: 12px;
             }
             .dashboard {
-                bottom: calc(124px + env(safe-area-inset-bottom));
-                height: min(64dvh, 560px);
+                --sheet-tab: 52px;
+                top: 82px;
+                right: 0;
+                bottom: 72px;
+                left: auto;
+                width: min(336px, calc(100vw - 16px));
+                max-height: none;
+                border-radius: 22px 0 0 22px;
+                opacity: 0.96;
+                transform: translate3d(calc(100% - var(--sheet-tab)), 0, 0);
+                transition: transform 0.22s ease, opacity 0.16s ease;
+                will-change: transform, opacity;
+                z-index: 19;
             }
-            .sidebar.is-open,
-            .dashboard.is-open {
+            .sidebar.is-open {
                 z-index: 18;
                 opacity: 1;
                 transform: translate3d(0, 0, 0);
             }
+            .dashboard.is-open { opacity: 1; transform: translate3d(0, 0, 0); }
+            .dashboard:not(.is-open) .dashboard-toggle {
+                position: absolute;
+                top: 50%;
+                left: 0;
+                width: var(--sheet-tab);
+                min-height: 156px;
+                padding: 12px 10px;
+                transform: translateY(-50%) rotate(180deg);
+                writing-mode: vertical-rl;
+            }
+            .dashboard:not(.is-open) .dashboard-chevron { display: none; }
             .sidebar .panel-head {
                 position: sticky;
                 top: -12px;

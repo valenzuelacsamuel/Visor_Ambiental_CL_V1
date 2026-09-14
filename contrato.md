@@ -27,6 +27,12 @@ Este documento actúa como contrato técnico, guía de arquitectura y bitácora 
 
 ## 4. Bitácora de Cambios (Change Log)
 
+### [2026-09-14] - Dashboard móvil como cajón lateral
+- **Agente:** OpenCode (Desarrollador WebGIS Senior)
+- **Acción:** Reubicación del dashboard interactivo para evitar la superposición con el panel de control móvil.
+- **Detalles:** Bajo `768px`, el panel de control conserva su Bottom Sheet inferior y el dashboard pasa a ser un cajón derecho. Cerrado deja una pestaña vertical fija y accesible; abierto se desplaza horizontalmente sobre el mapa y cierra el panel de control mediante la lógica existente.
+- **Estado Actual:** Las herramientas de filtro, exportación, simbología y geoprocesos quedan accesibles sin competencia visual con el dashboard; se mantiene un único DOM y transiciones por `transform`/`opacity`.
+
 ### [2026-09-14] - Corrección de acceso al panel móvil
 - **Agente:** OpenCode (Desarrollador WebGIS Senior)
 - **Acción:** Corrección de visibilidad del panel de control en el diseño móvil.
