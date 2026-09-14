@@ -34,7 +34,7 @@ Este documento actúa como contrato técnico, guía de arquitectura y bitácora 
   - Bajo `768px`, los paneles existentes se reutilizan como Bottom Sheets colapsables mediante `transform` y `opacity`; en escritorio conservan su disposición flotante. El panel abierto cierra el otro en móvil para liberar el mapa.
   - Se añadió un único sincronizador con `requestAnimationFrame` que ejecuta `map.resize()` y redimensiona ECharts en cambios de viewport, `visualViewport`, contenido del dashboard, toggles y fin de transición.
   - La implementación usa CSS Grid/Flexbox y media queries nativas, respeta movimiento reducido y mantiene el filtrado cruzado, los controles y la accesibilidad mediante `aria-expanded` en el mismo HTML.
-- **Estado Actual:** Interfaz responsive preparada para validación local y posterior publicación en GitHub Pages.
+- **Estado Actual:** Interfaz responsive validada mediante revisión del diff y despliegue de GitHub Pages. El visor público sirve los Bottom Sheets y el sincronizador de MapLibre/ECharts; no se duplicó el DOM.
 
 ### [2026-09-13] - Conexión de GitHub para publicación
 - **Agente:** OpenCode
