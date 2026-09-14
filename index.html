@@ -177,7 +177,27 @@
 
         .panel-head { display: flex; align-items: center; justify-content: space-between; }
 
-        .panel-title { font-size: 14px; font-weight: 600; color: #fff; }
+        .panel-title { margin: 0; font-size: 14px; font-weight: 600; color: #fff; }
+
+        .sheet-toggle {
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            appearance: none;
+            border: 0;
+            padding: 0;
+            background: transparent;
+            color: inherit;
+            font: inherit;
+            text-align: left;
+            cursor: pointer;
+        }
+
+        .sheet-toggle:focus-visible { outline: 2px solid var(--glass-accent); outline-offset: 3px; }
+        .sheet-chevron { color: var(--glass-text-dim); transition: transform 0.2s ease; }
+        .sheet-toggle[aria-expanded="true"] .sheet-chevron { transform: rotate(180deg); }
 
         .panel-live {
             display: inline-flex;
@@ -567,7 +587,8 @@
             .sidebar { width: 248px; }
         }
 
-        @media (max-width: 640px) {
+        /* A single DOM becomes two stacked bottom sheets below 768px. */
+        @media (max-width: 767px) {
             .toolbar {
                 left: 16px;
                 right: 16px;
@@ -580,13 +601,47 @@
             .brand-mark, .brand-sub, #tab-regions, .panel-live, .panel-note { display: none; }
             .brand-title { font-size: 12px; }
             .seg-tab { padding-inline: 10px; }
-            .sidebar {
+            .sidebar,
+            .dashboard {
+                --sheet-peek: 54px;
                 top: auto;
-                right: 16px;
-                bottom: 60px;
+                right: 8px;
+                left: 8px;
                 width: auto;
-                max-height: 50vh;
-                padding: 14px;
+                max-height: none;
+                border-radius: 22px 22px 0 0;
+                opacity: 0.94;
+                transform: translate3d(0, calc(100% - var(--sheet-peek)), 0);
+                transition: transform 0.22s ease, opacity 0.16s ease;
+                will-change: transform, opacity;
+            }
+            .sidebar {
+                bottom: env(safe-area-inset-bottom);
+                height: min(72dvh, 620px);
+                padding: 12px 16px calc(16px + env(safe-area-inset-bottom));
+                gap: 12px;
+            }
+            .dashboard {
+                bottom: calc(62px + env(safe-area-inset-bottom));
+                height: min(64dvh, 560px);
+            }
+            .sidebar.is-open,
+            .dashboard.is-open {
+                opacity: 1;
+                transform: translate3d(0, 0, 0);
+            }
+            .sidebar .panel-head {
+                position: sticky;
+                top: -12px;
+                z-index: 1;
+                margin: -12px -16px 0;
+                padding: 12px 16px;
+                background: var(--glass-bg-solid);
+            }
+            .dashboard-content {
+                display: block !important;
+                max-height: calc(100% - 48px);
+                padding-bottom: calc(15px + env(safe-area-inset-bottom));
             }
             .statusbar {
                 left: 16px;
@@ -600,10 +655,13 @@
             .status-item .k { font-size: 8px; }
             .maplibregl-ctrl-top-right, .maplibregl-ctrl-scale { display: none; }
             .legend { top: 82px; right: 16px; width: 220px; }
-            .dashboard { top: 82px; right: 16px; bottom: auto; width: 272px; max-height: 42vh; }
-            .dashboard-content { max-height: calc(42vh - 48px); }
             #dashboard-rubro-chart { height: 220px; }
             #dashboard-distribution-chart { height: 130px; }
+        }
+
+        @media (min-width: 768px) {
+            .sidebar:not(.is-open) > :not(.panel-head),
+            .dashboard:not(.is-open) .dashboard-content { display: none; }
         }
 
         /* =====================================================================
@@ -650,6 +708,8 @@
             .live-dot { animation: none; }
             .spinner { animation: none; border-top-color: var(--glass-text); }
             .glass,
+            .sidebar,
+            .dashboard,
             .seg-tab,
             .glass-select,
             .maplibregl-popup-close-button { transition: none !important; }
@@ -683,9 +743,9 @@
     </header>
 
     <!-- Capa de control flotante: Panel lateral -->
-    <aside class="glass sidebar" aria-label="Filtros y estadísticas">
+    <aside id="sidebar-panel" class="glass sidebar is-open" aria-label="Filtros y estadísticas">
         <div class="panel-head">
-            <h2 class="panel-title">Panel de control</h2>
+            <h2 class="panel-title"><button id="sidebar-toggle" class="sheet-toggle" type="button" aria-expanded="true" aria-controls="sidebar-panel">Panel de control <span class="sheet-chevron" aria-hidden="true">⌄</span></button></h2>
             <span class="panel-live"><span class="live-dot" aria-hidden="true"></span> En vivo</span>
         </div>
 
@@ -816,7 +876,7 @@
         <div id="legend-content" class="legend-content" hidden></div>
     </section>
 
-    <aside class="glass dashboard" aria-label="Dashboard SINADER">
+    <aside id="dashboard-panel" class="glass dashboard is-open" aria-label="Dashboard SINADER">
         <button id="dashboard-toggle" class="dashboard-toggle" type="button" aria-expanded="true" aria-controls="dashboard-content">
             Dashboard SINADER <span class="dashboard-chevron" aria-hidden="true">⌄</span>
         </button>
@@ -913,6 +973,9 @@
             const legendContent = document.getElementById('legend-content');
             const dashboardToggle = document.getElementById('dashboard-toggle');
             const dashboardContent = document.getElementById('dashboard-content');
+            const sidebarPanel = document.getElementById('sidebar-panel');
+            const sidebarToggle = document.getElementById('sidebar-toggle');
+            const dashboardPanel = document.getElementById('dashboard-panel');
             const dashboardMetricSelect = document.getElementById('dashboard-metric');
             const dashboardTonnesElem = document.getElementById('dashboard-tonnes');
             const dashboardEstablishmentsElem = document.getElementById('dashboard-establishments');
@@ -1033,6 +1096,43 @@
                 };
             }
 
+            // One scheduler keeps MapLibre and both canvases aligned after layout changes.
+            let layoutFrame = 0;
+            const compactSheets = window.matchMedia('(max-width: 767px)');
+            const sheets = [[sidebarPanel, sidebarToggle], [dashboardPanel, dashboardToggle]];
+
+            function syncMapLayout() {
+                cancelAnimationFrame(layoutFrame);
+                layoutFrame = requestAnimationFrame(() => {
+                    map.resize();
+                    rubroChart && rubroChart.resize();
+                    distributionChart && distributionChart.resize();
+                });
+            }
+
+            function setSheetOpen(panel, toggle, open) {
+                panel.classList.toggle('is-open', open);
+                toggle.setAttribute('aria-expanded', String(open));
+                if (open && compactSheets.matches) {
+                    sheets.forEach(([otherPanel, otherToggle]) => {
+                        if (otherPanel !== panel) {
+                            otherPanel.classList.remove('is-open');
+                            otherToggle.setAttribute('aria-expanded', 'false');
+                        }
+                    });
+                }
+                syncMapLayout();
+            }
+
+            function syncSheetsForViewport() {
+                // Desktop keeps both panels visible; compact screens start with clear map space.
+                sheets.forEach(([panel, toggle]) => {
+                    panel.classList.toggle('is-open', !compactSheets.matches);
+                    toggle.setAttribute('aria-expanded', String(!compactSheets.matches));
+                });
+                syncMapLayout();
+            }
+
             function initDashboard() {
                 if (!window.echarts) {
                     dashboardStatusElem.textContent = 'No se pudo cargar ECharts';
@@ -1045,16 +1145,14 @@
                     dashboardState.rubros.has(params.name) ? dashboardState.rubros.delete(params.name) : dashboardState.rubros.add(params.name);
                     syncSinaderDashboard();
                 });
-                const resize = () => {
-                    rubroChart.resize();
-                    distributionChart.resize();
-                };
-                new ResizeObserver(resize).observe(dashboardContent);
-                window.addEventListener('resize', resize);
-                if (window.matchMedia('(max-width: 640px)').matches) {
-                    dashboardToggle.setAttribute('aria-expanded', 'false');
-                    dashboardContent.hidden = true;
-                }
+                new ResizeObserver(syncMapLayout).observe(dashboardContent);
+                window.addEventListener('resize', syncMapLayout);
+                window.visualViewport && window.visualViewport.addEventListener('resize', syncMapLayout);
+                compactSheets.addEventListener('change', syncSheetsForViewport);
+                sheets.forEach(([panel]) => panel.addEventListener('transitionend', event => {
+                    if (event.propertyName === 'transform') syncMapLayout();
+                }));
+                syncSheetsForViewport();
             }
 
             function renderDashboard(establishments) {
@@ -1848,15 +1946,16 @@
                         dashboardState.metric = e.target.value;
                         renderDashboard(getFilteredSinader());
                     });
-                    dashboardToggle.addEventListener('click', () => {
-                        const expanded = dashboardToggle.getAttribute('aria-expanded') === 'true';
-                        dashboardToggle.setAttribute('aria-expanded', String(!expanded));
-                        dashboardContent.hidden = expanded;
-                        if (!expanded) requestAnimationFrame(() => {
-                            rubroChart && rubroChart.resize();
-                            distributionChart && distributionChart.resize();
-                        });
-                    });
+                    sidebarToggle.addEventListener('click', () => setSheetOpen(
+                        sidebarPanel,
+                        sidebarToggle,
+                        sidebarToggle.getAttribute('aria-expanded') !== 'true'
+                    ));
+                    dashboardToggle.addEventListener('click', () => setSheetOpen(
+                        dashboardPanel,
+                        dashboardToggle,
+                        dashboardToggle.getAttribute('aria-expanded') !== 'true'
+                    ));
                     thematicLayerSelect.addEventListener('change', populateThematicFields);
                     thematicApplyButton.addEventListener('click', () => {
                         try {
